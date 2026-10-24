@@ -12,7 +12,8 @@ Unity Editor was not available in the CI/agent environment, so TerrainData / sce
 4. This creates:
    - `Assets/Terrain/Generated/WorldTerrain_Plains_Data.asset`
    - Scene `Assets/Scenes/WorldMap.unity` with a single Terrain + strategy camera
-5. Hit Play and orbit/pan as needed. Scale defaults: **2000 × 60 × 2000** (width × height × length) — good for top-down strategy; tweak on the Terrain component / TerrainData.
+5. For marches/combat test: **Fantasy 4x → Gameplay → Spawn Test Scenario** (see `Assets/Scripts/README.md`).
+6. Hit Play. Terrain scale defaults: **2000 × 60 × 2000** (width × height × length).
 
 ### Other heightmaps
 
