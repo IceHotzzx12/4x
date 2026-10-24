@@ -1,0 +1,30 @@
+River map contains
+
+512-512 elevation map layers.
+
+GreyScaleElevation.png
+NormalsMapStd.png
+ColourCombined.png
+OcclusionDirectional.png
+Shadow.png
+River.png
+StackedHeight.png
+MapTest.png
+
+Stacked height map extends the height map range from 0-255 for grey scale elevation map to 0-765 allowing for finer detail but still remain compatible with most image manipulation software. Be warned though that many image editing applications do not know it is a height map and converting to black and white will tend to compress the height at the top and bottom of the height range making middle gradients steeper.
+
+To correctly convert the Stacked height map to elevations (which you may wish to do for you 3D game) 
+For each pixel's colour channel
+
+    int elevation = R + G + B;
+
+For a normalised elevation 0-1
+
+    float elevation = (R + G + B) / 765.0;
+    
+    
+This map was auto generated from the hand drawn river map and there is a little noise at the edges (2pixels in on all sides) that you may wish to cut out.
+
+Occlusion is my own algorithm and is not an real occlusion but rather a looks good approximation.
+
+

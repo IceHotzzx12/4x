@@ -1,0 +1,8 @@
+Source: https://gamedevgary.itch.io/50-free-terrain-heightmaps
+Author: GameDevGary
+
+License quote from the itch.io page (verbatim):
+"License is CC0, free for personal and commercial use. Just don't try to sell them as is, please."
+
+Creative Commons Zero (CC0) — public domain dedication.
+Attribution not required by the stated license.

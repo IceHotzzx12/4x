@@ -1,0 +1,9 @@
+Source: https://opengameart.org/content/512-by-512-terrain-elevation-map-with-layers
+Title: 512 by 512 terrain elevation map with layers
+Author: Blindman67 (OpenGameArt)
+
+License stated on OpenGameArt (verbatim label):
+"CC-BY 3.0"
+http://creativecommons.org/licenses/by/3.0/
+
+Attribution required under CC-BY 3.0 (credit Blindman67 / OpenGameArt).
