@@ -14,16 +14,23 @@ RoK / Fate War style: select armies, march on continuous NavMesh terrain, fight 
 
 ## How Oliver tests
 
+`WorldMap` on `main` is already Play-ready (Plains Terrain + test armies + NavMesh). Open the scene and press **Play** — no menu steps required.
+
+Controls:
+
+- **LMB drag** — box-select blue armies
+- **RMB** on open field — all selected march (repath mid-march works)
+- **RMB** on red barbarian — chase + fight (1 dmg tick / second from Attack stats)
+- **WASD** / screen edge / mouse wheel — camera (never under terrain)
+
+If you recreate the map from scratch:
+
 1. Open project in **Unity 2022.3+** (AI Navigation package resolves on first open).
 2. **Fantasy 4x → Terrain → Create Plains Terrain (recommended)**
 3. **Fantasy 4x → Gameplay → Spawn Test Scenario**  
-   (bakes NavMesh via `NavMeshSurface`, places 3 blue armies + 3 red barbarians, wires camera + march controller)
+   (bakes NavMesh via `NavMeshSurface`, places 3 blue armies + 3 barbarians, wires camera + march controller)  
+   Headless: `-executeMethod Fantasy4xTestScenario.SpawnTestScenarioBatch`
 4. Optional: **Fantasy 4x → Gameplay → Bake NavMesh (Terrain)** if you recreated terrain
-5. Press **Play**
-   - **LMB drag** — box-select blue armies  
-   - **RMB** on open field — all selected march (repath mid-march works)  
-   - **RMB** on red barbarian — chase + fight (1 dmg tick / second from Attack stats)  
-   - **WASD** / screen edge / mouse wheel — camera (never under terrain)
 
 ## Package
 
