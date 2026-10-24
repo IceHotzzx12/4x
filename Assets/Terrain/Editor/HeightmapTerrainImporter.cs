@@ -121,7 +121,7 @@ public static class HeightmapTerrainImporter
         var resolution = PickHeightmapResolution(Mathf.Max(heightmap.width, heightmap.height));
         var heights = SampleHeights(heightmap, resolution);
 
-        var terrainData = ScriptableObject.CreateInstance<TerrainData>();
+        var terrainData = new TerrainData();
         terrainData.heightmapResolution = resolution;
         terrainData.size = new Vector3(DefaultTerrainWidth, maxHeight, DefaultTerrainLength);
         terrainData.SetHeights(0, 0, heights);
