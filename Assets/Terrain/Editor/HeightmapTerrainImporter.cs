@@ -29,6 +29,33 @@ public static class HeightmapTerrainImporter
         CreateTerrainFromAsset($"{HeightmapFolder}/{DefaultHeightmap}", DefaultTerrainHeightPlains, "WorldTerrain_Plains");
     }
 
+    /// <summary>
+    /// Headless entry: Unity -batchmode -nographics -executeMethod HeightmapTerrainImporter.CreatePlainsTerrainBatch -quit
+    /// </summary>
+    public static void CreatePlainsTerrainBatch()
+    {
+        try
+        {
+            CreateTerrainFromAsset(
+                $"{HeightmapFolder}/{DefaultHeightmap}",
+                DefaultTerrainHeightPlains,
+                "WorldTerrain_Plains",
+                batchMode: true);
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+            Debug.Log("[Fantasy4x] CreatePlainsTerrainBatch OK");
+            if (Application.isBatchMode)
+                EditorApplication.Exit(0);
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError("[Fantasy4x] CreatePlainsTerrainBatch FAILED: " + ex);
+            if (Application.isBatchMode)
+                EditorApplication.Exit(1);
+            throw;
+        }
+    }
+
     [MenuItem("Fantasy 4x/Terrain/Create Meadows Terrain", false, 11)]
     public static void CreateMeadowsTerrain()
     {
@@ -93,7 +120,7 @@ public static class HeightmapTerrainImporter
         EditorGUIUtility.PingObject(mask);
     }
 
-    static void CreateTerrainFromAsset(string texturePath, float maxHeight, string terrainName)
+    static void CreateTerrainFromAsset(string texturePath, float maxHeight, string terrainName, bool batchMode = false)
     {
         EnsureReadable(texturePath);
         AssetDatabase.Refresh();
@@ -101,18 +128,20 @@ public static class HeightmapTerrainImporter
         var heightmap = AssetDatabase.LoadAssetAtPath<Texture2D>(texturePath);
         if (heightmap == null)
         {
-            EditorUtility.DisplayDialog("Heightmap Terrain", $"Could not load texture:\n{texturePath}", "OK");
+            var msg = $"Could not load texture:\n{texturePath}";
+            if (batchMode) throw new System.InvalidOperationException(msg);
+            EditorUtility.DisplayDialog("Heightmap Terrain", msg, "OK");
             return;
         }
 
         if (!heightmap.isReadable)
         {
-            EditorUtility.DisplayDialog(
-                "Heightmap Terrain",
+            var msg =
                 $"{heightmap.name} is not readable.\n" +
                 "In the Inspector enable Read/Write, then re-run this menu item.\n" +
-                "(Importer .meta files in this PR already set that for GameDevGary maps.)",
-                "OK");
+                "(Importer .meta files in this PR already set that for GameDevGary maps.)";
+            if (batchMode) throw new System.InvalidOperationException(msg);
+            EditorUtility.DisplayDialog("Heightmap Terrain", msg, "OK");
             return;
         }
 
