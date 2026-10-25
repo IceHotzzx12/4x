@@ -379,17 +379,36 @@ public static class Fantasy4xTestScenario
 
     static void PlaceAgentOnNavMesh(NavMeshAgent agent, Vector3 desired)
     {
-        // Edit/batchmode: set transform explicitly — Warp alone may not move the GameObject.
+        // Disable first — enabling off-mesh logs "Failed to create agent...".
+        agent.enabled = false;
+        agent.transform.position = desired;
+
         if (NavMesh.SamplePosition(desired, out var hit, 500f, NavMesh.AllAreas))
         {
             agent.transform.position = hit.position;
+            agent.enabled = true;
             agent.Warp(hit.position);
             return;
         }
 
-        agent.transform.position = desired;
-        agent.Warp(desired);
+        for (var r = 25f; r <= 400f; r += 25f)
+        {
+            for (var a = 0; a < 8; a++)
+            {
+                var ang = a * Mathf.PI * 0.25f;
+                var probe = desired + new Vector3(Mathf.Cos(ang) * r, 0f, Mathf.Sin(ang) * r);
+                if (!NavMesh.SamplePosition(probe, out hit, 30f, NavMesh.AllAreas))
+                    continue;
+                agent.transform.position = hit.position;
+                agent.enabled = true;
+                agent.Warp(hit.position);
+                return;
+            }
+        }
+
         Debug.LogWarning("[Fantasy4x] NavMesh.SamplePosition failed near " + desired);
+        agent.enabled = true;
+        agent.Warp(desired);
     }
 
     static GameObject CreateCapsuleUnit(string name, Vector3 pos, Material mat)
