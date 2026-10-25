@@ -55,6 +55,9 @@ public class RTSCamera : MonoBehaviour
 
     void PanFromScreenEdge()
     {
+        // Don't pan until the Game view has focus (avoids flying off on Play click).
+        if (!Application.isFocused) return;
+
         var mouse = Input.mousePosition;
         // Ignore when cursor is outside the game view.
         if (mouse.x < 0 || mouse.y < 0 || mouse.x > Screen.width || mouse.y > Screen.height)

@@ -31,6 +31,27 @@ public class ArmyMarchController : MonoBehaviour
             rtsCamera = Camera.main;
     }
 
+    void Start()
+    {
+        // Guarantee Game view looks at the test armies (avoids empty blue clear-color).
+        FocusCameraOnArmies();
+    }
+
+    void FocusCameraOnArmies()
+    {
+        if (rtsCamera == null)
+            rtsCamera = Camera.main;
+        if (rtsCamera == null) return;
+
+        var army = FindObjectOfType<ArmyUnit>();
+        if (army == null) return;
+
+        var p = army.transform.position;
+        rtsCamera.transform.position = new Vector3(p.x, p.y + 140f, p.z - 100f);
+        rtsCamera.transform.rotation = Quaternion.Euler(55f, 0f, 0f);
+        rtsCamera.farClipPlane = Mathf.Max(rtsCamera.farClipPlane, 6000f);
+    }
+
     void Update()
     {
         if (rtsCamera == null)
