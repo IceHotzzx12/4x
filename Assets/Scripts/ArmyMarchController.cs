@@ -47,9 +47,11 @@ public class ArmyMarchController : MonoBehaviour
         if (army == null) return;
 
         var p = army.transform.position;
-        rtsCamera.transform.position = new Vector3(p.x, p.y + 140f, p.z - 100f);
-        rtsCamera.transform.rotation = Quaternion.Euler(55f, 0f, 0f);
+        rtsCamera.transform.position = new Vector3(p.x, p.y + 220f, p.z - 140f);
+        rtsCamera.transform.rotation = Quaternion.Euler(58f, 0f, 0f);
         rtsCamera.farClipPlane = Mathf.Max(rtsCamera.farClipPlane, 6000f);
+        rtsCamera.clearFlags = CameraClearFlags.SolidColor;
+        rtsCamera.backgroundColor = new Color(0.45f, 0.62f, 0.85f);
     }
 
     void Update()

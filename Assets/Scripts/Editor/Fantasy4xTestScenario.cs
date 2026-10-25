@@ -117,6 +117,7 @@ public static class Fantasy4xTestScenario
         }
 
         EnsureGameplayControllers(terrain);
+        EnsurePlainsTerrainVisuals(terrain);
         EnsureMaterials();
         ClearExistingTestUnits();
 
@@ -151,6 +152,106 @@ public static class Fantasy4xTestScenario
 
         EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
         return true;
+    }
+
+    [MenuItem("Fantasy 4x/Terrain/Apply Plains Ground Visuals", false, 20)]
+    public static void ApplyPlainsGroundVisualsMenu()
+    {
+        var terrain = Terrain.activeTerrain;
+        if (terrain == null)
+        {
+            EditorUtility.DisplayDialog(
+                "Plains Visuals",
+                "No Terrain in the scene.\n\nOpen WorldMap or run Create Plains Terrain first.",
+                "OK");
+            return;
+        }
+
+        EnsurePlainsTerrainVisuals(terrain);
+        EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
+        EditorSceneManager.SaveScene(SceneManager.GetActiveScene());
+        EditorUtility.DisplayDialog(
+            "Plains Visuals",
+            "Grass TerrainLayer applied. The map should now be clearly visible in Game view.",
+            "OK");
+    }
+
+    /// <summary>
+    /// Terrain without TerrainLayers often looks empty/black in Game view.
+    /// Adds a simple tiled grass diffuse so the plains read as a map.
+    /// </summary>
+    static void EnsurePlainsTerrainVisuals(Terrain terrain)
+    {
+        const string texPath = "Assets/Terrain/Generated/Tex_PlainsGrass.png";
+        const string layerPath = "Assets/Terrain/Generated/Layer_PlainsGrass.terrainlayer";
+
+        EnsureFolder("Assets/Terrain/Generated");
+
+        if (AssetDatabase.LoadAssetAtPath<Texture2D>(texPath) == null)
+        {
+            var tex = new Texture2D(64, 64, TextureFormat.RGBA32, false);
+            for (var y = 0; y < 64; y++)
+            {
+                for (var x = 0; x < 64; x++)
+                {
+                    var n = Mathf.PerlinNoise(x * 0.17f, y * 0.17f);
+                    var c = Color.Lerp(
+                        new Color(0.32f, 0.52f, 0.20f),
+                        new Color(0.48f, 0.66f, 0.28f),
+                        n);
+                    tex.SetPixel(x, y, c);
+                }
+            }
+
+            tex.Apply();
+            System.IO.File.WriteAllBytes(texPath, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+            AssetDatabase.ImportAsset(texPath);
+
+            var importer = AssetImporter.GetAtPath(texPath) as TextureImporter;
+            if (importer != null)
+            {
+                importer.sRGBTexture = true;
+                importer.wrapMode = TextureWrapMode.Repeat;
+                importer.filterMode = FilterMode.Bilinear;
+                importer.mipmapEnabled = true;
+                importer.SaveAndReimport();
+            }
+        }
+
+        var diffuse = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
+        var layer = AssetDatabase.LoadAssetAtPath<TerrainLayer>(layerPath);
+        if (layer == null)
+        {
+            layer = new TerrainLayer
+            {
+                diffuseTexture = diffuse,
+                tileSize = new Vector2(48f, 48f)
+            };
+            AssetDatabase.CreateAsset(layer, layerPath);
+        }
+        else
+        {
+            layer.diffuseTexture = diffuse;
+            layer.tileSize = new Vector2(48f, 48f);
+            EditorUtility.SetDirty(layer);
+        }
+
+        var td = terrain.terrainData;
+        td.terrainLayers = new[] { layer };
+
+        var w = td.alphamapWidth;
+        var h = td.alphamapHeight;
+        var alphas = new float[h, w, 1];
+        for (var y = 0; y < h; y++)
+        for (var x = 0; x < w; x++)
+            alphas[y, x, 0] = 1f;
+        td.SetAlphamaps(0, 0, alphas);
+
+        EditorUtility.SetDirty(td);
+        terrain.Flush();
+        AssetDatabase.SaveAssets();
+        Debug.Log("[Fantasy4x] Plains TerrainLayer applied (grass diffuse).");
     }
 
     [MenuItem("Fantasy 4x/Gameplay/Bake NavMesh (Terrain)", false, 110)]
