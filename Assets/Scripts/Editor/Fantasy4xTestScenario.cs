@@ -9,11 +9,48 @@ using Unity.AI.Navigation;
 /// <summary>
 /// Fantasy 4x -> Gameplay menu: spawn test armies/barbarians and bake NavMesh for open-field marches.
 /// </summary>
+[InitializeOnLoad]
 public static class Fantasy4xTestScenario
 {
     const string PlayerMatPath = "Assets/Scripts/Generated/Mat_PlayerArmy.mat";
     const string BarbMatPath = "Assets/Scripts/Generated/Mat_Barbarian.mat";
     const string WorldMapScenePath = "Assets/Scenes/WorldMap.unity";
+    const string VisualsSessionKey = "Fantasy4x.PlainsVisualsApplied";
+
+    static Fantasy4xTestScenario()
+    {
+        // One-shot: if WorldMap Terrain has no layers, paint grass after domain reload.
+        EditorApplication.delayCall += AutoApplyPlainsVisualsIfNeeded;
+    }
+
+    static void AutoApplyPlainsVisualsIfNeeded()
+    {
+        if (EditorApplication.isPlayingOrWillChangePlaymode) return;
+        if (SessionState.GetBool(VisualsSessionKey, false)) return;
+
+        var terrain = Terrain.activeTerrain;
+        if (terrain == null || terrain.terrainData == null) return;
+
+        var layers = terrain.terrainData.terrainLayers;
+        if (layers != null && layers.Length > 0 && layers[0] != null)
+        {
+            SessionState.SetBool(VisualsSessionKey, true);
+            return;
+        }
+
+        try
+        {
+            EnsurePlainsTerrainVisuals(terrain);
+            EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
+            EditorSceneManager.SaveScene(SceneManager.GetActiveScene());
+            SessionState.SetBool(VisualsSessionKey, true);
+            Debug.Log("[Fantasy4x] Auto-applied plains grass visuals (Terrain had no layers).");
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogWarning("[Fantasy4x] Auto plains visuals skipped: " + ex.Message);
+        }
+    }
 
     [MenuItem("Fantasy 4x/Gameplay/Spawn Test Scenario", false, 100)]
     public static void SpawnTestScenario()
