@@ -137,7 +137,7 @@ public static class FantasyKingdomOuterMapSetup
         AssetDatabase.SaveAssets();
 
         SetPrimaryPlayScene(OuterMapScenePath);
-        EnforceOldInputManager();
+        EnforceBothInputBackends();
 
         Debug.Log(
             $"[Fantasy4x] Outer map saved: {OuterMapScenePath} " +
@@ -472,26 +472,27 @@ public static class FantasyKingdomOuterMapSetup
     }
 
     /// <summary>
-    /// OpenRTS uses legacy Input.*; keep Active Input Handling = Input Manager (Old) = 0.
+    /// Fantasy Kingdom sample needs Input System; OpenRTS needs legacy Input.*.
+    /// Active Input Handling must be Both (2) — never New only (1).
     /// </summary>
-    static void EnforceOldInputManager()
+    static void EnforceBothInputBackends()
     {
         const string settingsPath = "ProjectSettings/ProjectSettings.asset";
-        // Always pin via YAML — OpenRTS needs Input Manager (Old)=0; Input System package may flip this.
         if (!File.Exists(settingsPath))
             return;
         var text = File.ReadAllText(settingsPath);
-        if (text.Contains("activeInputHandler: 1") || text.Contains("activeInputHandler: 2"))
+        if (text.Contains("activeInputHandler: 2"))
         {
-            text = text.Replace("activeInputHandler: 1", "activeInputHandler: 0")
-                       .Replace("activeInputHandler: 2", "activeInputHandler: 0");
-            File.WriteAllText(settingsPath, text);
-            Debug.Log("[Fantasy4x] Forced activeInputHandler=0 (Input Manager Old).");
+            Debug.Log("[Fantasy4x] activeInputHandler already Both (2).");
+            return;
         }
-        else
-        {
-            Debug.Log("[Fantasy4x] activeInputHandler already Input Manager (Old).");
-        }
+
+        text = System.Text.RegularExpressions.Regex.Replace(
+            text,
+            @"activeInputHandler:\s*\d+",
+            "activeInputHandler: 2");
+        File.WriteAllText(settingsPath, text);
+        Debug.Log("[Fantasy4x] Forced activeInputHandler=2 (Both: Input Manager + Input System).");
     }
 }
 #endif
