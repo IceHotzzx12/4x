@@ -9,48 +9,11 @@ using Unity.AI.Navigation;
 /// <summary>
 /// Fantasy 4x -> Gameplay menu: spawn test armies/barbarians and bake NavMesh for open-field marches.
 /// </summary>
-[InitializeOnLoad]
 public static class Fantasy4xTestScenario
 {
     const string PlayerMatPath = "Assets/Scripts/Generated/Mat_PlayerArmy.mat";
     const string BarbMatPath = "Assets/Scripts/Generated/Mat_Barbarian.mat";
     const string WorldMapScenePath = "Assets/Scenes/WorldMap.unity";
-    const string VisualsSessionKey = "Fantasy4x.PlainsVisualsApplied";
-
-    static Fantasy4xTestScenario()
-    {
-        // One-shot: if WorldMap Terrain has no layers, paint grass after domain reload.
-        EditorApplication.delayCall += AutoApplyPlainsVisualsIfNeeded;
-    }
-
-    static void AutoApplyPlainsVisualsIfNeeded()
-    {
-        if (EditorApplication.isPlayingOrWillChangePlaymode) return;
-        if (SessionState.GetBool(VisualsSessionKey, false)) return;
-
-        var terrain = Terrain.activeTerrain;
-        if (terrain == null || terrain.terrainData == null) return;
-
-        var layers = terrain.terrainData.terrainLayers;
-        if (layers != null && layers.Length > 0 && layers[0] != null)
-        {
-            SessionState.SetBool(VisualsSessionKey, true);
-            return;
-        }
-
-        try
-        {
-            EnsurePlainsTerrainVisuals(terrain);
-            EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
-            EditorSceneManager.SaveScene(SceneManager.GetActiveScene());
-            SessionState.SetBool(VisualsSessionKey, true);
-            Debug.Log("[Fantasy4x] Auto-applied plains grass visuals (Terrain had no layers).");
-        }
-        catch (System.Exception ex)
-        {
-            Debug.LogWarning("[Fantasy4x] Auto plains visuals skipped: " + ex.Message);
-        }
-    }
 
     [MenuItem("Fantasy 4x/Gameplay/Spawn Test Scenario", false, 100)]
     public static void SpawnTestScenario()
@@ -60,9 +23,8 @@ public static class Fantasy4xTestScenario
 
         Selection.activeGameObject = GameObject.Find("PlayerArmy_1");
         Debug.Log(
-            "[Fantasy4x] Test scenario spawned: 3 player armies (blue) + 3 barbarians (red).\n" +
-            "Play: LMB-drag select -> RMB open field to march -> RMB barbarian to chase/fight.\n" +
-            "Camera: WASD / edge scroll / mouse wheel.");
+            "[Fantasy4x] Large test scenario: 3 blue + 3 red, ~500u apart on kingdom map center.\n" +
+            "Play: LMB-drag select -> RMB march / attack. Camera pan speeds up when zoomed out.");
     }
 
     /// <summary>
@@ -76,7 +38,7 @@ public static class Fantasy4xTestScenario
             if (!System.IO.File.Exists(WorldMapScenePath))
             {
                 throw new System.InvalidOperationException(
-                    "WorldMap scene missing. Run Fantasy 4x -> Terrain -> Create Plains Terrain first.");
+                    "WorldMap scene missing. Run Fantasy 4x → Terrain → Create Kingdom Terrain Grid first.");
             }
 
             EditorSceneManager.OpenScene(WorldMapScenePath, OpenSceneMode.Single);
@@ -87,13 +49,12 @@ public static class Fantasy4xTestScenario
             var tri = NavMesh.CalculateTriangulation();
             var triCount = tri.indices != null ? tri.indices.Length / 3 : 0;
 
-            // isOnNavMesh is unreliable in edit/batchmode; SamplePosition reflects bake coverage.
             var armiesOk = 0;
             var armyTotal = 0;
             foreach (var a in Object.FindObjectsOfType<ArmyUnit>())
             {
                 armyTotal++;
-                if (NavMesh.SamplePosition(a.transform.position, out _, 5f, NavMesh.AllAreas))
+                if (NavMesh.SamplePosition(a.transform.position, out _, 80f, NavMesh.AllAreas))
                     armiesOk++;
             }
 
@@ -102,20 +63,21 @@ public static class Fantasy4xTestScenario
             foreach (var b in Object.FindObjectsOfType<BarbarUnit>())
             {
                 barbTotal++;
-                if (NavMesh.SamplePosition(b.transform.position, out _, 5f, NavMesh.AllAreas))
+                if (NavMesh.SamplePosition(b.transform.position, out _, 80f, NavMesh.AllAreas))
                     barbsOk++;
             }
 
             var hasMarch = Object.FindObjectOfType<ArmyMarchController>() != null;
             var hasCam = Object.FindObjectOfType<RTSCamera>() != null;
+            var tileCount = Terrain.activeTerrains != null ? Terrain.activeTerrains.Length : 0;
 
             Debug.Log(
-                $"[Fantasy4x] NavMesh triangles={triCount}, army samples ok={armiesOk}/{armyTotal}, " +
-                $"barbarian samples ok={barbsOk}/{barbTotal}, ArmyMarchController={hasMarch}, RTSCamera={hasCam}");
+                $"[Fantasy4x] tiles={tileCount}, NavMesh triangles={triCount}, army ok={armiesOk}/{armyTotal}, " +
+                $"barb ok={barbsOk}/{barbTotal}, ArmyMarchController={hasMarch}, RTSCamera={hasCam}");
 
-            if (triCount < 100 || armiesOk < 3 || barbsOk < 3 || !hasMarch || !hasCam)
+            if (tileCount < 16 || triCount < 100 || armiesOk < 3 || barbsOk < 3 || !hasMarch || !hasCam)
                 throw new System.InvalidOperationException(
-                    $"Playable setup incomplete: triangles={triCount}, armiesOk={armiesOk}, barbsOk={barbsOk}, march={hasMarch}, cam={hasCam}");
+                    $"Playable setup incomplete: tiles={tileCount}, triangles={triCount}, armiesOk={armiesOk}, barbsOk={barbsOk}");
 
             EditorSceneManager.SaveScene(SceneManager.GetActiveScene(), WorldMapScenePath);
             AssetDatabase.SaveAssets();
@@ -135,57 +97,58 @@ public static class Fantasy4xTestScenario
 
     static bool TrySpawnTestScenario(bool showDialogs)
     {
-        var terrain = Terrain.activeTerrain;
-        if (terrain == null)
+        var mapW = Fantasy4xMapDesign.PrototypeMapWidthUnity;
+        var mapCenter = new Vector3(mapW * 0.5f, 0f, mapW * 0.5f);
+        var terrain = RTSCamera.FindTerrainAt(mapCenter) ?? Terrain.activeTerrain;
+        if (terrain == null || Terrain.activeTerrains == null || Terrain.activeTerrains.Length == 0)
         {
             if (showDialogs)
             {
                 EditorUtility.DisplayDialog(
                     "Spawn Test Scenario",
-                    "No Terrain found.\n\nRun Fantasy 4x -> Terrain -> Create Plains Terrain first.",
+                    "No Terrain found.\n\nRun Fantasy 4x → Terrain → Create Kingdom Terrain Grid 4x4 first.",
                     "OK");
             }
             else
             {
-                Debug.LogError("[Fantasy4x] No Terrain found. Create Plains Terrain first.");
+                Debug.LogError("[Fantasy4x] No Terrain found. Create Kingdom Terrain Grid first.");
             }
 
             return false;
         }
 
-        EnsureGameplayControllers(terrain);
-        EnsurePlainsTerrainVisuals(terrain);
+        EnsureGameplayControllers(terrain, mapCenter);
+        foreach (var t in Terrain.activeTerrains)
+            EnsurePlainsTerrainVisuals(t);
         EnsureMaterials();
         ClearExistingTestUnits();
 
-        // Bake walkable surface before warping agents onto it.
-        BakeNavMeshForTerrain(terrain);
+        // Bake walkable surface on every tile before warping agents.
+        BakeNavMeshForAllTerrains();
 
-        var size = terrain.terrainData.size;
-        var origin = terrain.transform.position;
-        var center = origin + new Vector3(size.x * 0.5f, 0f, size.z * 0.5f);
-
+        // ~500 units apart across the kingdom map center (RoK open-field feel).
         var playerOffsets = new[]
         {
-            new Vector3(-40f, 0f, -30f),
-            new Vector3(0f, 0f, -45f),
-            new Vector3(40f, 0f, -30f)
+            new Vector3(-500f, 0f, -250f),
+            new Vector3(0f, 0f, -500f),
+            new Vector3(500f, 0f, -250f)
         };
         var barbOffsets = new[]
         {
-            new Vector3(-35f, 0f, 55f),
-            new Vector3(0f, 0f, 70f),
-            new Vector3(35f, 0f, 55f)
+            new Vector3(-500f, 0f, 500f),
+            new Vector3(0f, 0f, 750f),
+            new Vector3(500f, 0f, 500f)
         };
+        var center = mapCenter;
 
         var playerMat = AssetDatabase.LoadAssetAtPath<Material>(PlayerMatPath);
         var barbMat = AssetDatabase.LoadAssetAtPath<Material>(BarbMatPath);
 
         for (var i = 0; i < 3; i++)
-            SpawnPlayerArmy($"PlayerArmy_{i + 1}", SampleTerrainPoint(terrain, center + playerOffsets[i]), playerMat);
+            SpawnPlayerArmy($"PlayerArmy_{i + 1}", SampleTerrainPoint(center + playerOffsets[i]), playerMat);
 
         for (var i = 0; i < 3; i++)
-            SpawnBarbarian($"Barbarian_{i + 1}", SampleTerrainPoint(terrain, center + barbOffsets[i]), barbMat);
+            SpawnBarbarian($"Barbarian_{i + 1}", SampleTerrainPoint(center + barbOffsets[i]), barbMat);
 
         EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
         return true;
@@ -312,23 +275,21 @@ public static class Fantasy4xTestScenario
     [MenuItem("Fantasy 4x/Gameplay/Bake NavMesh (Terrain)", false, 110)]
     public static void BakeNavMeshMenu()
     {
-        var terrain = Terrain.activeTerrain;
-        if (terrain == null)
+        if (Terrain.activeTerrains == null || Terrain.activeTerrains.Length == 0)
         {
             EditorUtility.DisplayDialog("Bake NavMesh", "No Terrain in the scene.", "OK");
             return;
         }
 
-        BakeNavMeshForTerrain(terrain);
+        BakeNavMeshForAllTerrains();
         EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
         EditorUtility.DisplayDialog(
             "Bake NavMesh",
-            "NavMesh baked via NavMeshSurface on the active Terrain.\n\n" +
-            "Fallback: Window -> AI -> Navigation -> Bake if agents still cannot path.",
+            $"NavMesh baked on {Terrain.activeTerrains.Length} Terrain tiles via NavMeshSurface.",
             "OK");
     }
 
-    static void EnsureGameplayControllers(Terrain terrain)
+    static void EnsureGameplayControllers(Terrain terrain, Vector3 mapCenter)
     {
         var march = Object.FindObjectOfType<ArmyMarchController>();
         if (march == null)
@@ -350,13 +311,16 @@ public static class Fantasy4xTestScenario
         if (rts == null)
             rts = cam.gameObject.AddComponent<RTSCamera>();
         rts.terrain = terrain;
+        rts.maxHeightAboveTerrain = 2800f;
+        rts.panSpeedReferenceHeight = 500f;
+        rts.maxPanSpeedMultiplier = 10f;
 
-        var size = terrain.terrainData.size;
-        var center = terrain.transform.position + new Vector3(size.x * 0.5f, 0f, size.z * 0.5f);
-        var ground = terrain.SampleHeight(center) + terrain.transform.position.y;
-        cam.transform.position = new Vector3(center.x, ground + 180f, center.z - 120f);
+        var ground = SampleTerrainPoint(mapCenter).y;
+        cam.transform.position = new Vector3(mapCenter.x, ground + 450f, mapCenter.z - 320f);
         cam.transform.rotation = Quaternion.Euler(55f, 0f, 0f);
-        cam.farClipPlane = Mathf.Max(cam.farClipPlane, size.x * 3f);
+        cam.farClipPlane = Mathf.Max(cam.farClipPlane, Fantasy4xMapDesign.PrototypeMapWidthUnity * 3f);
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.45f, 0.62f, 0.85f);
 
         march.rtsCamera = cam;
     }
@@ -369,9 +333,12 @@ public static class Fantasy4xTestScenario
             Object.DestroyImmediate(b.gameObject);
     }
 
-    static Vector3 SampleTerrainPoint(Terrain terrain, Vector3 approx)
+    static Vector3 SampleTerrainPoint(Vector3 approx)
     {
-        var y = terrain.SampleHeight(approx) + terrain.transform.position.y + 0.05f;
+        var t = RTSCamera.FindTerrainAt(approx) ?? Terrain.activeTerrain;
+        if (t == null)
+            return approx;
+        var y = t.SampleHeight(approx) + t.transform.position.y + 0.05f;
         return new Vector3(approx.x, y, approx.z);
     }
 
@@ -477,6 +444,22 @@ public static class Fantasy4xTestScenario
         AssetDatabase.SaveAssets();
     }
 
+    static void BakeNavMeshForAllTerrains()
+    {
+        Physics.SyncTransforms();
+        var terrains = Terrain.activeTerrains;
+        var totalTris = 0;
+        foreach (var terrain in terrains)
+        {
+            if (terrain == null || terrain.terrainData == null) continue;
+            BakeNavMeshForTerrain(terrain);
+        }
+
+        var tri = NavMesh.CalculateTriangulation();
+        totalTris = tri.indices != null ? tri.indices.Length / 3 : 0;
+        Debug.Log($"[Fantasy4x] NavMesh bake complete on {terrains.Length} tiles, triangles={totalTris}");
+    }
+
     static void BakeNavMeshForTerrain(Terrain terrain)
     {
         var col = terrain.GetComponent<TerrainCollider>();
@@ -484,71 +467,26 @@ public static class Fantasy4xTestScenario
             col = terrain.gameObject.AddComponent<TerrainCollider>();
         col.enabled = true;
         col.terrainData = terrain.terrainData;
-
-        // Force heightmap into physics before collect.
         terrain.Flush();
-        Physics.SyncTransforms();
 
         var size = terrain.terrainData.size;
-        var origin = terrain.transform.position;
-        var centerWorld = origin + new Vector3(size.x * 0.5f, 0f, size.z * 0.5f);
-        var hCenter = terrain.SampleHeight(centerWorld) + origin.y;
-        var hCorner = terrain.SampleHeight(origin) + origin.y;
-        Debug.Log($"[Fantasy4x] Terrain heights: center={hCenter:F2}, corner0={hCorner:F2}, size={size}");
-
         var surface = terrain.GetComponent<NavMeshSurface>();
         if (surface == null)
             surface = terrain.gameObject.AddComponent<NavMeshSurface>();
 
-        // Explicit volume covering the whole Terrain.
         surface.collectObjects = CollectObjects.Volume;
         surface.center = new Vector3(size.x * 0.5f, size.y * 0.5f, size.z * 0.5f);
-        surface.size = new Vector3(size.x + 10f, Mathf.Max(size.y * 2f, 120f), size.z + 10f);
-        // PhysicsColliders is the Terrain-supported path for heightfields.
+        surface.size = new Vector3(size.x + 10f, Mathf.Max(size.y * 2f, 200f), size.z + 10f);
         surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
         surface.layerMask = ~0;
         surface.defaultArea = 0;
-        surface.minRegionArea = 1f;
+        surface.minRegionArea = 4f;
         surface.overrideVoxelSize = true;
-        // Coarser on RoK-scale ~4000² maps (mobile bake time).
-        surface.voxelSize = size.x >= 3000f ? 3f : 1f;
+        // Coarse voxels — 16× 2000² tiles (8000² kingdom).
+        surface.voxelSize = 4f;
         surface.overrideTileSize = true;
         surface.tileSize = 64;
         surface.BuildNavMesh();
-
-        var tri = NavMesh.CalculateTriangulation();
-        var triCount = tri.indices != null ? tri.indices.Length / 3 : 0;
-        var b = new Bounds();
-        if (tri.vertices != null && tri.vertices.Length > 0)
-        {
-            b = new Bounds(tri.vertices[0], Vector3.zero);
-            for (var i = 1; i < tri.vertices.Length; i++)
-                b.Encapsulate(tri.vertices[i]);
-        }
-
-        Debug.Log(
-            $"[Fantasy4x] NavMeshSurface.BuildNavMesh() on {terrain.name}: " +
-            $"triangles={triCount}, bounds={b.min} .. {b.max}, terrainSize={size}");
-
-        // If bake ignored heightfield (flat strip far from terrain surface), fall back to a denser pass.
-        if (triCount < 1000 || Mathf.Abs(b.center.y - hCenter) > 20f)
-        {
-            Debug.LogWarning(
-                "[Fantasy4x] NavMesh bake looks wrong vs terrain height — retrying with voxelSize=2");
-            surface.voxelSize = 2f;
-            surface.BuildNavMesh();
-            tri = NavMesh.CalculateTriangulation();
-            triCount = tri.indices != null ? tri.indices.Length / 3 : 0;
-            if (tri.vertices != null && tri.vertices.Length > 0)
-            {
-                b = new Bounds(tri.vertices[0], Vector3.zero);
-                for (var i = 1; i < tri.vertices.Length; i++)
-                    b.Encapsulate(tri.vertices[i]);
-            }
-
-            Debug.Log(
-                $"[Fantasy4x] NavMesh retry: triangles={triCount}, bounds={b.min} .. {b.max}");
-        }
     }
 
     static void EnsureFolder(string path)

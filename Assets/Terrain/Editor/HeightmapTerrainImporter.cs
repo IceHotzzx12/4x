@@ -6,9 +6,8 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// Creates a seamless Unity Terrain from a grayscale PNG heightmap.
-/// Menu: Fantasy 4x → Terrain → …
-/// Designed for RoK-style top-down strategy (large XY footprint, modest height).
+/// Fantasy 4x → Terrain: RoK-scale kingdom as a seamless 4×4 Unity Terrain grid
+/// (visual neighbors only — not a gameplay hex grid).
 /// </summary>
 [InitializeOnLoad]
 public static class HeightmapTerrainImporter
@@ -16,197 +15,93 @@ public static class HeightmapTerrainImporter
     const string HeightmapFolder = "Assets/Terrain/Heightmaps/GameDevGary";
     const string TerrainDataFolder = "Assets/Terrain/Generated";
     const string DefaultHeightmap = "Heightmap_04_Plains.png";
-    const string PlainsTerrainName = "WorldTerrain_Plains";
     const string RiverMaskPath = "Assets/Terrain/RiverMask/Blindman67/River.png";
-    const string PlainsHeightsSessionKey = "Fantasy4x.PlainsHeights.v3";
+    const string GridSessionKey = "Fantasy4x.KingdomGrid.v1";
 
-    // RoK-scale prototype sizes — see Fantasy4xMapDesign (1200 km via 4000 u × 300 m/u).
-    static float DefaultTerrainWidth => Fantasy4xMapDesign.PrototypeTerrainWidthUnity;
-    static float DefaultTerrainLength => Fantasy4xMapDesign.PrototypeTerrainLengthUnity;
-    static float DefaultTerrainHeightPlains => Fantasy4xMapDesign.PrototypePlainsMaxHeightUnity;
-    const float DefaultTerrainHeightRelief = 180f;
+    static int Tiles => Fantasy4xMapDesign.TerrainGridTilesPerAxis;
+    static float TileSize => Fantasy4xMapDesign.TerrainTileSizeUnity;
+    static float MaxHeight => Fantasy4xMapDesign.PrototypeMaxHeightUnity;
 
     static HeightmapTerrainImporter()
     {
-        EditorApplication.delayCall += AutoReapplyPlainsHeightsIfNeeded;
+        EditorApplication.delayCall += AutoCreateKingdomGridIfNeeded;
     }
 
-    static void AutoReapplyPlainsHeightsIfNeeded()
+    static void AutoCreateKingdomGridIfNeeded()
     {
         if (EditorApplication.isPlayingOrWillChangePlaymode) return;
-        if (SessionState.GetBool(PlainsHeightsSessionKey, false)) return;
+        if (SessionState.GetBool(GridSessionKey, false)) return;
 
-        var terrain = Terrain.activeTerrain;
-        if (terrain == null || terrain.name != PlainsTerrainName || terrain.terrainData == null)
+        var root = GameObject.Find(Fantasy4xMapDesign.KingdomGridRootName);
+        if (root != null && root.transform.childCount >= Tiles * Tiles)
+        {
+            SessionState.SetBool(GridSessionKey, true);
             return;
+        }
 
         try
         {
-            ApplyHeightmapToTerrain(
-                terrain,
-                $"{HeightmapFolder}/{DefaultHeightmap}",
-                DefaultTerrainHeightPlains,
-                preserveLayers: true);
-            Fantasy4xTestScenario.EnsurePlainsTerrainVisualsPublic(terrain);
+            CreateKingdomTerrainGrid(batchMode: true, showDialog: false);
             Fantasy4xTestScenario.ResyncTestScenarioAfterTerrainChange();
-            SessionState.SetBool(PlainsHeightsSessionKey, true);
-            Debug.Log("[Fantasy4x] Auto-applied Plains heightmap heights (v3) + test scenario resync.");
+            SessionState.SetBool(GridSessionKey, true);
+            Debug.Log("[Fantasy4x] Auto-created KingdomTerrainGrid 4×4 + test scenario.");
         }
         catch (System.Exception ex)
         {
-            Debug.LogWarning("[Fantasy4x] Auto plains heights skipped: " + ex.Message);
+            Debug.LogWarning("[Fantasy4x] Auto kingdom grid skipped: " + ex.Message);
         }
     }
 
+    [MenuItem("Fantasy 4x/Terrain/Create Kingdom Terrain Grid 4x4 (RoK)", false, 5)]
+    public static void CreateKingdomTerrainGridMenu()
+    {
+        try
+        {
+            CreateKingdomTerrainGrid(batchMode: false, showDialog: true);
+            Fantasy4xTestScenario.ResyncTestScenarioAfterTerrainChange();
+        }
+        catch (System.Exception ex)
+        {
+            EditorUtility.DisplayDialog("Kingdom Grid", "Failed:\n" + ex.Message, "OK");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Headless: -executeMethod HeightmapTerrainImporter.CreateKingdomTerrainGridBatch
+    /// </summary>
+    public static void CreateKingdomTerrainGridBatch()
+    {
+        try
+        {
+            CreateKingdomTerrainGrid(batchMode: true, showDialog: false);
+            Fantasy4xTestScenario.ResyncTestScenarioAfterTerrainChange();
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+            SessionState.SetBool(GridSessionKey, true);
+            Debug.Log("[Fantasy4x] CreateKingdomTerrainGridBatch OK");
+            if (Application.isBatchMode)
+                EditorApplication.Exit(0);
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError("[Fantasy4x] CreateKingdomTerrainGridBatch FAILED: " + ex);
+            if (Application.isBatchMode)
+                EditorApplication.Exit(1);
+            throw;
+        }
+    }
+
+    // Back-compat aliases (old menus / CI).
     [MenuItem("Fantasy 4x/Terrain/Create Plains Terrain (recommended)", false, 10)]
-    public static void CreatePlainsTerrain()
-    {
-        CreateTerrainFromAsset($"{HeightmapFolder}/{DefaultHeightmap}", DefaultTerrainHeightPlains, PlainsTerrainName);
-    }
+    public static void CreatePlainsTerrain() => CreateKingdomTerrainGridMenu();
 
-    /// <summary>
-    /// Headless entry: Unity -batchmode -nographics -executeMethod HeightmapTerrainImporter.CreatePlainsTerrainBatch -quit
-    /// </summary>
-    public static void CreatePlainsTerrainBatch()
-    {
-        try
-        {
-            CreateTerrainFromAsset(
-                $"{HeightmapFolder}/{DefaultHeightmap}",
-                DefaultTerrainHeightPlains,
-                PlainsTerrainName,
-                batchMode: true);
-            AssetDatabase.SaveAssets();
-            AssetDatabase.Refresh();
-            Debug.Log("[Fantasy4x] CreatePlainsTerrainBatch OK");
-            if (Application.isBatchMode)
-                EditorApplication.Exit(0);
-        }
-        catch (System.Exception ex)
-        {
-            Debug.LogError("[Fantasy4x] CreatePlainsTerrainBatch FAILED: " + ex);
-            if (Application.isBatchMode)
-                EditorApplication.Exit(1);
-            throw;
-        }
-    }
+    public static void CreatePlainsTerrainBatch() => CreateKingdomTerrainGridBatch();
 
-    /// <summary>
-    /// Re-apply GameDevGary Plains heightmap onto existing WorldTerrain_Plains (keeps grass layers).
-    /// Headless: -executeMethod HeightmapTerrainImporter.ApplyPlainsHeightsBatch
-    /// </summary>
     [MenuItem("Fantasy 4x/Terrain/Re-apply Plains Heightmap", false, 15)]
-    public static void ApplyPlainsHeightsMenu()
-    {
-        try
-        {
-            ApplyPlainsHeightsInternal(showDialog: true);
-        }
-        catch (System.Exception ex)
-        {
-            EditorUtility.DisplayDialog("Plains Heightmap", "Failed:\n" + ex.Message, "OK");
-            throw;
-        }
-    }
+    public static void ApplyPlainsHeightsMenu() => CreateKingdomTerrainGridMenu();
 
-    public static void ApplyPlainsHeightsBatch()
-    {
-        try
-        {
-            ApplyPlainsHeightsInternal(showDialog: false);
-            AssetDatabase.SaveAssets();
-            AssetDatabase.Refresh();
-            Debug.Log("[Fantasy4x] ApplyPlainsHeightsBatch OK");
-            if (Application.isBatchMode)
-                EditorApplication.Exit(0);
-        }
-        catch (System.Exception ex)
-        {
-            Debug.LogError("[Fantasy4x] ApplyPlainsHeightsBatch FAILED: " + ex);
-            if (Application.isBatchMode)
-                EditorApplication.Exit(1);
-            throw;
-        }
-    }
-
-    static void ApplyPlainsHeightsInternal(bool showDialog)
-    {
-        const string scenePath = "Assets/Scenes/WorldMap.unity";
-        if (File.Exists(scenePath))
-            EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
-
-        var terrainGo = GameObject.Find(PlainsTerrainName);
-        var terrain = terrainGo != null ? terrainGo.GetComponent<Terrain>() : Terrain.activeTerrain;
-        if (terrain == null || terrain.terrainData == null)
-            throw new System.InvalidOperationException(
-                "WorldTerrain_Plains not found. Run Create Plains Terrain first.");
-
-        var stats = ApplyHeightmapToTerrain(
-            terrain,
-            $"{HeightmapFolder}/{DefaultHeightmap}",
-            DefaultTerrainHeightPlains,
-            preserveLayers: true);
-
-        Fantasy4xTestScenario.EnsurePlainsTerrainVisualsPublic(terrain);
-        Fantasy4xTestScenario.ResyncTestScenarioAfterTerrainChange();
-        SessionState.SetBool(PlainsHeightsSessionKey, true);
-
-        var msg =
-            $"[Fantasy4x] Plains heightmap applied (RoK-scale).\n" +
-            $"Source: {DefaultHeightmap}\n" +
-            $"Terrain size: {DefaultTerrainWidth}×{DefaultTerrainHeightPlains}×{DefaultTerrainLength} " +
-            $"(≈ {Fantasy4xMapDesign.PrototypeKingdomWidthKm:F0} km @ {Fantasy4xMapDesign.MetersPerUnityUnit} m/u)\n" +
-            $"Resolution: {stats.resolution}\n" +
-            $"Raw sample min/max: {stats.rawMin:F3} .. {stats.rawMax:F3} (stretched to 0..1)\n" +
-            $"Shard players (design only): {Fantasy4xMapDesign.TargetPlayersPerKingdomShardMin}–{Fantasy4xMapDesign.TargetPlayersPerKingdomShardMax}";
-        Debug.Log(msg);
-        if (showDialog)
-            EditorUtility.DisplayDialog("Plains Heightmap", msg, "OK");
-    }
-
-    [MenuItem("Fantasy 4x/Terrain/Create Meadows Terrain", false, 11)]
-    public static void CreateMeadowsTerrain()
-    {
-        CreateTerrainFromAsset($"{HeightmapFolder}/Heightmap_03_Meadows.png", DefaultTerrainHeightPlains, "WorldTerrain_Meadows");
-    }
-
-    [MenuItem("Fantasy 4x/Terrain/Create Mountains Terrain (barrier)", false, 12)]
-    public static void CreateMountainsTerrain()
-    {
-        CreateTerrainFromAsset($"{HeightmapFolder}/Heightmap_01_Mountains.png", DefaultTerrainHeightRelief, "WorldTerrain_Mountains");
-    }
-
-    [MenuItem("Fantasy 4x/Terrain/Create Hills Terrain (barrier)", false, 13)]
-    public static void CreateHillsTerrain()
-    {
-        CreateTerrainFromAsset($"{HeightmapFolder}/Heightmap_02_Hills.png", 120f, "WorldTerrain_Hills");
-    }
-
-    [MenuItem("Fantasy 4x/Terrain/Create Canyon Terrain (barrier)", false, 14)]
-    public static void CreateCanyonTerrain()
-    {
-        CreateTerrainFromAsset($"{HeightmapFolder}/Heightmap_06_Canyon.png", DefaultTerrainHeightRelief, "WorldTerrain_Canyon");
-    }
-
-    [MenuItem("Fantasy 4x/Terrain/Create From Selected Texture…", false, 30)]
-    public static void CreateFromSelection()
-    {
-        var tex = Selection.activeObject as Texture2D;
-        if (tex == null)
-        {
-            EditorUtility.DisplayDialog(
-                "Heightmap Terrain",
-                "Select a heightmap Texture2D under Assets/Terrain/Heightmaps/ first.",
-                "OK");
-            return;
-        }
-
-        var path = AssetDatabase.GetAssetPath(tex);
-        var height = tex.name.Contains("Plains") || tex.name.Contains("Meadows")
-            ? DefaultTerrainHeightPlains
-            : DefaultTerrainHeightRelief;
-        CreateTerrainFromAsset(path, height, $"WorldTerrain_{Sanitize(tex.name)}");
-    }
+    public static void ApplyPlainsHeightsBatch() => CreateKingdomTerrainGridBatch();
 
     [MenuItem("Fantasy 4x/Terrain/Log River Mask Usage", false, 50)]
     public static void LogRiverMaskUsage()
@@ -220,145 +115,144 @@ public static class HeightmapTerrainImporter
 
         Debug.Log(
             "[Fantasy4x] River mask ready (CC-BY 3.0 Blindman67).\n" +
-            $"Path: {RiverMaskPath} ({mask.width}×{mask.height})\n" +
-            "Later: sample this texture in world XZ → treat bright pixels as water / non-walkable.\n" +
-            "Do NOT invent pathfinding here — hook into your future movement / NavMesh bake.\n" +
-            "Attribution: Blindman67 — https://opengameart.org/content/512-by-512-terrain-elevation-map-with-layers");
+            $"Path: {RiverMaskPath}\n" +
+            "Later: water / non-walkable — not pathfinding here.\n" +
+            Fantasy4xMapDesign.RokTierPassNote);
         Selection.activeObject = mask;
-        EditorGUIUtility.PingObject(mask);
     }
 
-    static void CreateTerrainFromAsset(string texturePath, float maxHeight, string terrainName, bool batchMode = false)
+    static void CreateKingdomTerrainGrid(bool batchMode, bool showDialog)
     {
+        var texturePath = $"{HeightmapFolder}/{DefaultHeightmap}";
         EnsureReadable(texturePath);
         AssetDatabase.ImportAsset(texturePath);
-        AssetDatabase.Refresh();
 
         EnsureFolder(TerrainDataFolder);
+        var scene = EnsureWorldMapScene();
+        ClearLegacySingleTerrains();
 
-        var dataPath = $"{TerrainDataFolder}/{terrainName}_Data.asset";
-        var existingData = AssetDatabase.LoadAssetAtPath<TerrainData>(dataPath);
-        var preservedLayers = existingData != null ? existingData.terrainLayers : null;
-
-        HeightSampleStats stats;
-        TerrainData terrainData;
-        if (existingData != null)
+        var decode = LoadHeightmapTexture(texturePath);
+        float rawMin, rawMax;
+        try
         {
-            terrainData = existingData;
-            stats = ApplyHeightmapToTerrainData(terrainData, texturePath, maxHeight);
-            if (preservedLayers != null && preservedLayers.Length > 0)
-                terrainData.terrainLayers = preservedLayers;
-            EditorUtility.SetDirty(terrainData);
+            MeasureGrayscaleRange(decode, out rawMin, out rawMax);
         }
-        else
+        catch
         {
-            terrainData = new TerrainData();
-            stats = ApplyHeightmapToTerrainData(terrainData, texturePath, maxHeight);
-            AssetDatabase.CreateAsset(terrainData, dataPath);
+            Object.DestroyImmediate(decode);
+            throw;
+        }
+
+        var existingRoot = GameObject.Find(Fantasy4xMapDesign.KingdomGridRootName);
+        if (existingRoot != null)
+            Object.DestroyImmediate(existingRoot);
+
+        var root = new GameObject(Fantasy4xMapDesign.KingdomGridRootName);
+        var terrains = new Terrain[Tiles, Tiles];
+        const int resolution = 513;
+
+        try
+        {
+            for (var tz = 0; tz < Tiles; tz++)
+            {
+                for (var tx = 0; tx < Tiles; tx++)
+                {
+                    var name = $"WorldTerrain_{tx}_{tz}";
+                    var dataPath = $"{TerrainDataFolder}/{name}_Data.asset";
+
+                    var heights = SampleTileHeights(
+                        decode, resolution, tx, tz, Tiles, rawMin, rawMax);
+
+                    TerrainData data;
+                    var existing = AssetDatabase.LoadAssetAtPath<TerrainData>(dataPath);
+                    if (existing != null)
+                    {
+                        data = existing;
+                    }
+                    else
+                    {
+                        data = new TerrainData();
+                        AssetDatabase.CreateAsset(data, dataPath);
+                    }
+
+                    data.heightmapResolution = resolution;
+                    data.size = new Vector3(TileSize, MaxHeight, TileSize);
+                    data.SetHeights(0, 0, heights);
+                    EditorUtility.SetDirty(data);
+
+                    var go = Terrain.CreateTerrainGameObject(data);
+                    go.name = name;
+                    go.transform.SetParent(root.transform, true);
+                    go.transform.position = new Vector3(tx * TileSize, 0f, tz * TileSize);
+
+                    var terrain = go.GetComponent<Terrain>();
+                    terrains[tx, tz] = terrain;
+                    Fantasy4xTestScenario.EnsurePlainsTerrainVisualsPublic(terrain);
+                }
+            }
+        }
+        finally
+        {
+            Object.DestroyImmediate(decode);
         }
 
         AssetDatabase.SaveAssets();
+        WireTerrainNeighbors(terrains);
 
-        var scene = EnsureWorldMapScene();
-        var existing = GameObject.Find(terrainName);
-        Terrain terrainComp;
-        if (existing != null)
-        {
-            terrainComp = existing.GetComponent<Terrain>();
-            if (terrainComp == null)
-                terrainComp = existing.AddComponent<Terrain>();
-            terrainComp.terrainData = terrainData;
-            var col = existing.GetComponent<TerrainCollider>();
-            if (col == null)
-                col = existing.AddComponent<TerrainCollider>();
-            col.terrainData = terrainData;
-            existing.transform.position = Vector3.zero;
-        }
-        else
-        {
-            var terrainGo = Terrain.CreateTerrainGameObject(terrainData);
-            terrainGo.name = terrainName;
-            terrainGo.transform.position = Vector3.zero;
-            terrainComp = terrainGo.GetComponent<Terrain>();
-        }
-
-        if (terrainName == PlainsTerrainName)
-            Fantasy4xTestScenario.EnsurePlainsTerrainVisualsPublic(terrainComp);
-
-        EnsureStrategyCamera(terrainData.size);
-
+        EnsureStrategyCamera();
         EditorSceneManager.MarkSceneDirty(scene);
         EditorSceneManager.SaveScene(scene);
-        SessionState.SetBool(PlainsHeightsSessionKey, true);
 
-        Selection.activeGameObject = terrainComp.gameObject;
-        EditorGUIUtility.PingObject(terrainComp.gameObject);
-
-        Debug.Log(
-            $"[Fantasy4x] Created/updated seamless Terrain '{terrainName}' from {texturePath}\n" +
-            $"Size: {DefaultTerrainWidth}×{maxHeight}×{DefaultTerrainLength}, heightmapRes={stats.resolution}\n" +
-            $"Raw sample min/max: {stats.rawMin:F3} .. {stats.rawMax:F3}\n" +
-            $"TerrainData: {dataPath}\n" +
-            "No grid/tile — single continuous height field.");
+        var msg =
+            $"[Fantasy4x] Kingdom grid {Tiles}×{Tiles} @ {TileSize} → " +
+            $"{Fantasy4xMapDesign.PrototypeMapWidthUnity}² u, maxH={MaxHeight}\n" +
+            $"Heightmap {DefaultHeightmap} raw {rawMin:F3}..{rawMax:F3} (stretched)\n" +
+            $"≈ {Fantasy4xMapDesign.PrototypeKingdomWidthKm:F0} km @ {Fantasy4xMapDesign.MetersPerUnityUnit} m/u; " +
+            $"players target ~{Fantasy4xMapDesign.TargetPlayersPerKingdomShard}";
+        Debug.Log(msg);
+        if (showDialog)
+            EditorUtility.DisplayDialog("Kingdom Terrain Grid", msg, "OK");
     }
 
-    struct HeightSampleStats
+    static void ClearLegacySingleTerrains()
     {
-        public int resolution;
-        public float rawMin;
-        public float rawMax;
-    }
+        // Remove old single-tile Plains (and any orphan Terrain roots).
+        var legacy = GameObject.Find("WorldTerrain_Plains");
+        if (legacy != null)
+            Object.DestroyImmediate(legacy);
 
-    static HeightSampleStats ApplyHeightmapToTerrain(
-        Terrain terrain,
-        string texturePath,
-        float maxHeight,
-        bool preserveLayers)
-    {
-        EnsureReadable(texturePath);
-        AssetDatabase.ImportAsset(texturePath);
+        var plainsData = $"{TerrainDataFolder}/WorldTerrain_Plains_Data.asset";
+        if (File.Exists(plainsData))
+            AssetDatabase.DeleteAsset(plainsData);
 
-        var layers = preserveLayers ? terrain.terrainData.terrainLayers : null;
-        var stats = ApplyHeightmapToTerrainData(terrain.terrainData, texturePath, maxHeight);
-        if (layers != null && layers.Length > 0)
-            terrain.terrainData.terrainLayers = layers;
-
-        EditorUtility.SetDirty(terrain.terrainData);
-        terrain.Flush();
-        AssetDatabase.SaveAssets();
-        return stats;
-    }
-
-    static HeightSampleStats ApplyHeightmapToTerrainData(
-        TerrainData terrainData,
-        string texturePath,
-        float maxHeight)
-    {
-        var resolution = 1025;
-        var heights = SampleHeightsFromPath(texturePath, resolution, out var rawMin, out var rawMax);
-
-        // Changing resolution rebuilds alphamaps — caller may re-apply grass.
-        terrainData.heightmapResolution = resolution;
-        terrainData.size = new Vector3(DefaultTerrainWidth, maxHeight, DefaultTerrainLength);
-        terrainData.SetHeights(0, 0, heights);
-
-        return new HeightSampleStats
+        // Unique-path leftovers from older imports.
+        foreach (var guid in AssetDatabase.FindAssets("WorldTerrain_Plains_Data t:TerrainData", new[] { TerrainDataFolder }))
         {
-            resolution = resolution,
-            rawMin = rawMin,
-            rawMax = rawMax
-        };
+            var path = AssetDatabase.GUIDToAssetPath(guid);
+            if (!string.IsNullOrEmpty(path))
+                AssetDatabase.DeleteAsset(path);
+        }
     }
 
-    /// <summary>
-    /// Decode PNG via LoadImage (reliable for 16-bit grayscale sources) and build Terrain heights.
-    /// Samples color.grayscale, then stretches min..max → 0..1 so relief uses full size.y.
-    /// </summary>
-    static float[,] SampleHeightsFromPath(
-        string texturePath,
-        int resolution,
-        out float rawMin,
-        out float rawMax)
+    static void WireTerrainNeighbors(Terrain[,] terrains)
+    {
+        for (var tz = 0; tz < Tiles; tz++)
+        {
+            for (var tx = 0; tx < Tiles; tx++)
+            {
+                var left = tx > 0 ? terrains[tx - 1, tz] : null;
+                var right = tx < Tiles - 1 ? terrains[tx + 1, tz] : null;
+                var bottom = tz > 0 ? terrains[tx, tz - 1] : null;
+                var top = tz < Tiles - 1 ? terrains[tx, tz + 1] : null;
+                // Unity: SetNeighbors(left, top, right, bottom)
+                terrains[tx, tz].SetNeighbors(left, top, right, bottom);
+            }
+        }
+
+        Debug.Log("[Fantasy4x] Terrain.SetNeighbors wired for seamless LOD edges.");
+    }
+
+    static Texture2D LoadHeightmapTexture(string texturePath)
     {
         var fullPath = Path.GetFullPath(texturePath);
         if (!File.Exists(fullPath))
@@ -372,52 +266,56 @@ public static class HeightmapTerrainImporter
             throw new System.InvalidOperationException("PNG LoadImage failed: " + texturePath);
         }
 
-        try
+        return decode;
+    }
+
+    static void MeasureGrayscaleRange(Texture2D tex, out float rawMin, out float rawMax)
+    {
+        rawMin = 1f;
+        rawMax = 0f;
+        const int samples = 64;
+        for (var y = 0; y < samples; y++)
         {
-            return SampleHeights(decode, resolution, out rawMin, out rawMax);
-        }
-        finally
-        {
-            Object.DestroyImmediate(decode);
+            var v = y / (float)(samples - 1);
+            for (var x = 0; x < samples; x++)
+            {
+                var u = x / (float)(samples - 1);
+                var g = Mathf.Clamp01(tex.GetPixelBilinear(u, v).grayscale);
+                if (g < rawMin) rawMin = g;
+                if (g > rawMax) rawMax = g;
+            }
         }
     }
 
-    static float[,] SampleHeights(Texture2D tex, int resolution, out float rawMin, out float rawMax)
+    /// <summary>
+    /// Sample one grid tile from the full heightmap (continuous UV coverage).
+    /// Shared edges use identical UVs so SetNeighbors morphing stays clean.
+    /// </summary>
+    static float[,] SampleTileHeights(
+        Texture2D tex,
+        int resolution,
+        int tileX,
+        int tileZ,
+        int tilesPerAxis,
+        float rawMin,
+        float rawMax)
     {
-        var raw = new float[resolution, resolution];
-        rawMin = 1f;
-        rawMax = 0f;
+        var heights = new float[resolution, resolution];
+        var range = Mathf.Max(1e-5f, rawMax - rawMin);
+        var u0 = tileX / (float)tilesPerAxis;
+        var u1 = (tileX + 1) / (float)tilesPerAxis;
+        var v0 = tileZ / (float)tilesPerAxis;
+        var v1 = (tileZ + 1) / (float)tilesPerAxis;
 
         for (var y = 0; y < resolution; y++)
         {
-            var v = y / (float)(resolution - 1);
+            var v = Mathf.Lerp(v0, v1, y / (float)(resolution - 1));
             for (var x = 0; x < resolution; x++)
             {
-                var u = x / (float)(resolution - 1);
-                var c = tex.GetPixelBilinear(u, v);
-                var h = Mathf.Clamp01(c.grayscale);
-                raw[y, x] = h;
-                if (h < rawMin) rawMin = h;
-                if (h > rawMax) rawMax = h;
+                var u = Mathf.Lerp(u0, u1, x / (float)(resolution - 1));
+                var g = Mathf.Clamp01(tex.GetPixelBilinear(u, v).grayscale);
+                heights[y, x] = (g - rawMin) / range;
             }
-        }
-
-        var heights = new float[resolution, resolution];
-        var range = rawMax - rawMin;
-        if (range < 1e-5f)
-        {
-            // Flat source — keep mid plateau rather than NaNs.
-            for (var y = 0; y < resolution; y++)
-            for (var x = 0; x < resolution; x++)
-                heights[y, x] = 0.15f;
-            Debug.LogWarning("[Fantasy4x] Heightmap samples were flat; using plateau 0.15.");
-        }
-        else
-        {
-            // Stretch to full 0..1 so Terrain size.y (e.g. 80) shows real hills.
-            for (var y = 0; y < resolution; y++)
-            for (var x = 0; x < resolution; x++)
-                heights[y, x] = (raw[y, x] - rawMin) / range;
         }
 
         return heights;
@@ -429,50 +327,26 @@ public static class HeightmapTerrainImporter
         if (importer == null) return;
 
         var dirty = false;
-        if (!importer.isReadable)
-        {
-            importer.isReadable = true;
-            dirty = true;
-        }
-
+        if (!importer.isReadable) { importer.isReadable = true; dirty = true; }
         if (importer.textureCompression != TextureImporterCompression.Uncompressed)
         {
             importer.textureCompression = TextureImporterCompression.Uncompressed;
             dirty = true;
         }
-
         if (importer.npotScale != TextureImporterNPOTScale.None)
         {
             importer.npotScale = TextureImporterNPOTScale.None;
             dirty = true;
         }
-
-        if (importer.mipmapEnabled)
-        {
-            importer.mipmapEnabled = false;
-            dirty = true;
-        }
-
-        if (importer.sRGBTexture)
-        {
-            importer.sRGBTexture = false;
-            dirty = true;
-        }
-
-        // Prefer single-channel import for grayscale heightmaps when available.
+        if (importer.mipmapEnabled) { importer.mipmapEnabled = false; dirty = true; }
+        if (importer.sRGBTexture) { importer.sRGBTexture = false; dirty = true; }
         if (importer.textureType != TextureImporterType.SingleChannel)
         {
             importer.textureType = TextureImporterType.SingleChannel;
             importer.singleChannelComponent = TextureImporterSingleChannelComponent.Red;
             dirty = true;
         }
-
-        if (importer.maxTextureSize < 2048)
-        {
-            importer.maxTextureSize = 2048;
-            dirty = true;
-        }
-
+        if (importer.maxTextureSize < 2048) { importer.maxTextureSize = 2048; dirty = true; }
         if (dirty)
             importer.SaveAndReimport();
     }
@@ -481,35 +355,15 @@ public static class HeightmapTerrainImporter
     {
         const string scenePath = "Assets/Scenes/WorldMap.unity";
         EnsureFolder("Assets/Scenes");
-
         if (File.Exists(Path.Combine(Directory.GetCurrentDirectory(), scenePath)))
-        {
-            var open = EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
-            return open;
-        }
+            return EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
 
         var scene = EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
         EditorSceneManager.SaveScene(scene, scenePath);
-        AddSceneToBuildSettings(scenePath);
         return scene;
     }
 
-    static void AddSceneToBuildSettings(string scenePath)
-    {
-        var scenes = EditorBuildSettings.scenes;
-        foreach (var s in scenes)
-        {
-            if (s.path == scenePath) return;
-        }
-
-        var list = new EditorBuildSettingsScene[scenes.Length + 1];
-        for (var i = 0; i < scenes.Length; i++)
-            list[i] = scenes[i];
-        list[scenes.Length] = new EditorBuildSettingsScene(scenePath, true);
-        EditorBuildSettings.scenes = list;
-    }
-
-    static void EnsureStrategyCamera(Vector3 terrainSize)
+    static void EnsureStrategyCamera()
     {
         var cam = Camera.main;
         if (cam == null)
@@ -519,12 +373,11 @@ public static class HeightmapTerrainImporter
             cam.tag = "MainCamera";
         }
 
-        var center = new Vector3(terrainSize.x * 0.5f, 0f, terrainSize.z * 0.5f);
-        cam.transform.position = center + new Vector3(0f, terrainSize.x * 0.55f, -terrainSize.z * 0.15f);
-        cam.transform.rotation = Quaternion.Euler(65f, 0f, 0f);
-        cam.orthographic = false;
-        cam.fieldOfView = 40f;
-        cam.farClipPlane = Mathf.Max(5000f, terrainSize.x * 3f);
+        var map = Fantasy4xMapDesign.PrototypeMapWidthUnity;
+        var center = new Vector3(map * 0.5f, 0f, map * 0.5f);
+        cam.transform.position = center + new Vector3(0f, 600f, -400f);
+        cam.transform.rotation = Quaternion.Euler(55f, 0f, 0f);
+        cam.farClipPlane = Mathf.Max(cam.farClipPlane, map * 3f);
     }
 
     static void EnsureFolder(string path)
@@ -539,11 +392,6 @@ public static class HeightmapTerrainImporter
                 AssetDatabase.CreateFolder(current, parts[i]);
             current = next;
         }
-    }
-
-    static string Sanitize(string name)
-    {
-        return name.Replace("Heightmap_", "").Replace(" ", "_");
     }
 }
 #endif
