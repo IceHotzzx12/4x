@@ -66,7 +66,8 @@ public static class WorldPopulator
         }
     }
 
-    [InitializeOnLoadMethod]
+    // DISABLED_AUTO_POPULATE — TerrainFantasyUpgrade owns look
+    // [InitializeOnLoadMethod]
     static void AutoPopulateOnce()
     {
         EditorApplication.delayCall += () =>

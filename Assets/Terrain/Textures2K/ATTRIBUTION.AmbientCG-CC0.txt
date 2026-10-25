@@ -1,0 +1,6 @@
+﻿AmbientCG textures (CC0 1.0):
+- Grass001 → Fantasy grass
+- Rock020 → Dark rock / cliff
+- Ground037 → Sand/gravel riverbed
+- Ground003 → Forest floor
+https://ambientcg.com/ — public domain, no attribution required
