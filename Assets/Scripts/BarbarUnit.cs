@@ -2,7 +2,7 @@ using UnityEngine;
 using UnityEngine.AI;
 
 /// <summary>
-/// Neutral barbarian camp unit. Idles until a player army engages; then fights tick-per-second.
+/// LEGACY — superseded by OpenRtsUnit (isPlayerOwned=false). Spawn Test removes this.
 /// </summary>
 [RequireComponent(typeof(Collider))]
 [RequireComponent(typeof(Rigidbody))]

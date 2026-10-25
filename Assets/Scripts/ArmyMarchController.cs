@@ -2,9 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// RTS selection + march orders for player armies.
-/// Left-drag: box select. Right-click terrain: march. Right-click barbarian: chase/attack.
-/// Mid-march destination changes repath via NavMeshAgent.SetDestination.
+/// LEGACY — superseded by OpenRtsSelection. Spawn Test removes this from the scene.
 /// </summary>
 public class ArmyMarchController : MonoBehaviour
 {

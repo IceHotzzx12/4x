@@ -7,7 +7,7 @@ using UnityEngine.SceneManagement;
 using Unity.AI.Navigation;
 
 /// <summary>
-/// Fantasy 4x -> Gameplay menu: spawn test armies/barbarians and bake NavMesh for open-field marches.
+/// Fantasy 4x -> Gameplay menu: spawn OpenRTS test armies/barbarians and bake NavMesh.
 /// </summary>
 public static class Fantasy4xTestScenario
 {
@@ -23,13 +23,13 @@ public static class Fantasy4xTestScenario
 
         Selection.activeGameObject = GameObject.Find("PlayerArmy_1");
         Debug.Log(
-            "[Fantasy4x] Large test scenario: 3 blue + 3 red, ~500u apart on kingdom map center.\n" +
+            "[Fantasy4x] OpenRTS test: 3 blue + 3 red, ~500u apart on kingdom map center.\n" +
             "Play: LMB-drag select -> RMB march / attack. Camera pan speeds up when zoomed out.");
     }
 
     /// <summary>
     /// Headless entry: Unity -batchmode -nographics -executeMethod Fantasy4xTestScenario.SpawnTestScenarioBatch -quit
-    /// Opens WorldMap, spawns armies/barbarians, bakes NavMesh, saves scene.
+    /// Opens WorldMap, spawns OpenRts units, bakes NavMesh, saves scene.
     /// </summary>
     public static void SpawnTestScenarioBatch()
     {
@@ -49,35 +49,29 @@ public static class Fantasy4xTestScenario
             var tri = NavMesh.CalculateTriangulation();
             var triCount = tri.indices != null ? tri.indices.Length / 3 : 0;
 
-            var armiesOk = 0;
-            var armyTotal = 0;
-            foreach (var a in Object.FindObjectsOfType<ArmyUnit>())
+            var playerOk = 0;
+            var enemyOk = 0;
+            var unitTotal = 0;
+            foreach (var u in Object.FindObjectsOfType<OpenRtsUnit>())
             {
-                armyTotal++;
-                if (NavMesh.SamplePosition(a.transform.position, out _, 80f, NavMesh.AllAreas))
-                    armiesOk++;
+                unitTotal++;
+                var onMesh = NavMesh.SamplePosition(u.transform.position, out _, 80f, NavMesh.AllAreas);
+                if (!onMesh) continue;
+                if (u.isPlayerOwned) playerOk++;
+                else enemyOk++;
             }
 
-            var barbsOk = 0;
-            var barbTotal = 0;
-            foreach (var b in Object.FindObjectsOfType<BarbarUnit>())
-            {
-                barbTotal++;
-                if (NavMesh.SamplePosition(b.transform.position, out _, 80f, NavMesh.AllAreas))
-                    barbsOk++;
-            }
-
-            var hasMarch = Object.FindObjectOfType<ArmyMarchController>() != null;
-            var hasCam = Object.FindObjectOfType<RTSCamera>() != null;
+            var hasSel = Object.FindObjectOfType<OpenRtsSelection>() != null;
+            var hasCam = Object.FindObjectOfType<OpenRtsCamera>() != null;
             var tileCount = Terrain.activeTerrains != null ? Terrain.activeTerrains.Length : 0;
 
             Debug.Log(
-                $"[Fantasy4x] tiles={tileCount}, NavMesh triangles={triCount}, army ok={armiesOk}/{armyTotal}, " +
-                $"barb ok={barbsOk}/{barbTotal}, ArmyMarchController={hasMarch}, RTSCamera={hasCam}");
+                $"[Fantasy4x] tiles={tileCount}, NavMesh triangles={triCount}, units={unitTotal}, " +
+                $"playerOk={playerOk}, enemyOk={enemyOk}, OpenRtsSelection={hasSel}, OpenRtsCamera={hasCam}");
 
-            if (tileCount < 16 || triCount < 100 || armiesOk < 3 || barbsOk < 3 || !hasMarch || !hasCam)
+            if (tileCount < 16 || triCount < 100 || playerOk < 3 || enemyOk < 3 || !hasSel || !hasCam)
                 throw new System.InvalidOperationException(
-                    $"Playable setup incomplete: tiles={tileCount}, triangles={triCount}, armiesOk={armiesOk}, barbsOk={barbsOk}");
+                    $"Playable setup incomplete: tiles={tileCount}, triangles={triCount}, playerOk={playerOk}, enemyOk={enemyOk}");
 
             EditorSceneManager.SaveScene(SceneManager.GetActiveScene(), WorldMapScenePath);
             AssetDatabase.SaveAssets();
@@ -99,7 +93,7 @@ public static class Fantasy4xTestScenario
     {
         var mapW = Fantasy4xMapDesign.PrototypeMapWidthUnity;
         var mapCenter = new Vector3(mapW * 0.5f, 0f, mapW * 0.5f);
-        var terrain = RTSCamera.FindTerrainAt(mapCenter) ?? Terrain.activeTerrain;
+        var terrain = OpenRtsCamera.FindTerrainAt(mapCenter) ?? Terrain.activeTerrain;
         if (terrain == null || Terrain.activeTerrains == null || Terrain.activeTerrains.Length == 0)
         {
             if (showDialogs)
@@ -117,7 +111,7 @@ public static class Fantasy4xTestScenario
             return false;
         }
 
-        EnsureGameplayControllers(terrain, mapCenter);
+        EnsureGameplayControllers(mapCenter);
         foreach (var t in Terrain.activeTerrains)
             EnsurePlainsTerrainVisuals(t);
         EnsureMaterials();
@@ -289,44 +283,55 @@ public static class Fantasy4xTestScenario
             "OK");
     }
 
-    static void EnsureGameplayControllers(Terrain terrain, Vector3 mapCenter)
+    static void EnsureGameplayControllers(Vector3 mapCenter)
     {
-        var march = Object.FindObjectOfType<ArmyMarchController>();
-        if (march == null)
+        // Strip legacy capsule RTS stack so only OpenRTS drives input.
+        foreach (var legacy in Object.FindObjectsOfType<ArmyMarchController>())
+            Object.DestroyImmediate(legacy.gameObject);
+        foreach (var cam in Object.FindObjectsOfType<Camera>())
         {
-            var go = new GameObject("ArmyMarchController");
-            march = go.AddComponent<ArmyMarchController>();
+            var old = cam.GetComponent<RTSCamera>();
+            if (old != null)
+                Object.DestroyImmediate(old);
         }
 
-        var cam = Camera.main;
-        if (cam == null)
+        var camObj = Camera.main;
+        if (camObj == null)
         {
             var camGo = new GameObject("Main Camera");
-            cam = camGo.AddComponent<Camera>();
-            cam.tag = "MainCamera";
+            camObj = camGo.AddComponent<Camera>();
+            camObj.tag = "MainCamera";
             camGo.AddComponent<AudioListener>();
         }
 
-        var rts = cam.GetComponent<RTSCamera>();
+        var rts = camObj.GetComponent<OpenRtsCamera>();
         if (rts == null)
-            rts = cam.gameObject.AddComponent<RTSCamera>();
-        rts.terrain = terrain;
-        rts.maxHeightAboveTerrain = 2800f;
-        rts.panSpeedReferenceHeight = 500f;
-        rts.maxPanSpeedMultiplier = 10f;
+            rts = camObj.gameObject.AddComponent<OpenRtsCamera>();
+        rts.maxAltitude = 2800f;
+        rts.panReferenceAltitude = 500f;
+        rts.zoomPanMultiplier = 10f;
 
         var ground = SampleTerrainPoint(mapCenter).y;
-        cam.transform.position = new Vector3(mapCenter.x, ground + 450f, mapCenter.z - 320f);
-        cam.transform.rotation = Quaternion.Euler(55f, 0f, 0f);
-        cam.farClipPlane = Mathf.Max(cam.farClipPlane, Fantasy4xMapDesign.PrototypeMapWidthUnity * 3f);
-        cam.clearFlags = CameraClearFlags.SolidColor;
-        cam.backgroundColor = new Color(0.45f, 0.62f, 0.85f);
+        camObj.transform.position = new Vector3(mapCenter.x, ground + 450f, mapCenter.z - 320f);
+        camObj.transform.rotation = Quaternion.Euler(55f, 0f, 0f);
+        camObj.farClipPlane = Mathf.Max(camObj.farClipPlane, Fantasy4xMapDesign.PrototypeMapWidthUnity * 3f);
+        camObj.clearFlags = CameraClearFlags.SolidColor;
+        camObj.backgroundColor = new Color(0.45f, 0.62f, 0.85f);
 
-        march.rtsCamera = cam;
+        var selection = Object.FindObjectOfType<OpenRtsSelection>();
+        if (selection == null)
+        {
+            var go = new GameObject("OpenRtsSelection");
+            selection = go.AddComponent<OpenRtsSelection>();
+        }
+
+        selection.rtsCamera = camObj;
     }
 
     static void ClearExistingTestUnits()
     {
+        foreach (var u in Object.FindObjectsOfType<OpenRtsUnit>())
+            Object.DestroyImmediate(u.gameObject);
         foreach (var a in Object.FindObjectsOfType<ArmyUnit>())
             Object.DestroyImmediate(a.gameObject);
         foreach (var b in Object.FindObjectsOfType<BarbarUnit>())
@@ -335,7 +340,7 @@ public static class Fantasy4xTestScenario
 
     static Vector3 SampleTerrainPoint(Vector3 approx)
     {
-        var t = RTSCamera.FindTerrainAt(approx) ?? Terrain.activeTerrain;
+        var t = OpenRtsCamera.FindTerrainAt(approx) ?? Terrain.activeTerrain;
         if (t == null)
             return approx;
         var y = t.SampleHeight(approx) + t.transform.position.y + 0.05f;
@@ -349,10 +354,11 @@ public static class Fantasy4xTestScenario
         ConfigureAgent(agent, 8f);
         PlaceAgentOnNavMesh(agent, pos);
 
-        var army = go.AddComponent<ArmyUnit>();
-        army.Health = 100f;
-        army.Attack = 12f;
-        army.Speed = 8f;
+        var unit = go.AddComponent<OpenRtsUnit>();
+        unit.isPlayerOwned = true;
+        unit.health = 100f;
+        unit.attack = 12f;
+        unit.speed = 8f;
     }
 
     static void SpawnBarbarian(string name, Vector3 pos, Material mat)
@@ -364,10 +370,11 @@ public static class Fantasy4xTestScenario
         if (agent.isOnNavMesh)
             agent.isStopped = true;
 
-        var barb = go.AddComponent<BarbarUnit>();
-        barb.Health = 80f;
-        barb.Attack = 8f;
-        barb.Speed = 5f;
+        var unit = go.AddComponent<OpenRtsUnit>();
+        unit.isPlayerOwned = false;
+        unit.health = 80f;
+        unit.attack = 8f;
+        unit.speed = 5f;
     }
 
     static void PlaceAgentOnNavMesh(NavMeshAgent agent, Vector3 desired)
@@ -392,11 +399,9 @@ public static class Fantasy4xTestScenario
         go.transform.position = pos;
         go.transform.localScale = new Vector3(4f, 4f, 4f);
 
-        // CapsuleCollider from CreatePrimitive — keep as trigger for combat.
         var col = go.GetComponent<Collider>();
         col.isTrigger = true;
 
-        // Required so OnTriggerEnter fires while NavMeshAgent moves the transform.
         var rb = go.AddComponent<Rigidbody>();
         rb.isKinematic = true;
         rb.useGravity = false;
@@ -410,10 +415,9 @@ public static class Fantasy4xTestScenario
 
     static void ConfigureAgent(NavMeshAgent agent, float speed)
     {
-        // Keep agent dimensions aligned with default NavMesh surface bake (Humanoid).
         agent.radius = 0.5f;
         agent.height = 2f;
-        agent.baseOffset = 1f; // capsule visual is ~4 units tall (scale 4)
+        agent.baseOffset = 1f;
         agent.speed = speed;
         agent.acceleration = 40f;
         agent.angularSpeed = 360f;
@@ -448,7 +452,6 @@ public static class Fantasy4xTestScenario
     {
         Physics.SyncTransforms();
         var terrains = Terrain.activeTerrains;
-        var totalTris = 0;
         foreach (var terrain in terrains)
         {
             if (terrain == null || terrain.terrainData == null) continue;
@@ -456,7 +459,7 @@ public static class Fantasy4xTestScenario
         }
 
         var tri = NavMesh.CalculateTriangulation();
-        totalTris = tri.indices != null ? tri.indices.Length / 3 : 0;
+        var totalTris = tri.indices != null ? tri.indices.Length / 3 : 0;
         Debug.Log($"[Fantasy4x] NavMesh bake complete on {terrains.Length} tiles, triangles={totalTris}");
     }
 
@@ -482,7 +485,6 @@ public static class Fantasy4xTestScenario
         surface.defaultArea = 0;
         surface.minRegionArea = 4f;
         surface.overrideVoxelSize = true;
-        // Coarse voxels — 16× 2000² tiles (8000² kingdom).
         surface.voxelSize = 4f;
         surface.overrideTileSize = true;
         surface.tileSize = 64;

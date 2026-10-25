@@ -2,7 +2,7 @@ using UnityEngine;
 using UnityEngine.AI;
 
 /// <summary>
-/// Player army on the open-field map. Marches via NavMeshAgent; fights barbarians on contact.
+/// LEGACY — superseded by OpenRtsUnit (isPlayerOwned=true). Spawn Test removes this.
 /// </summary>
 [RequireComponent(typeof(NavMeshAgent))]
 [RequireComponent(typeof(Collider))]

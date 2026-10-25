@@ -1,8 +1,7 @@
 using UnityEngine;
 
 /// <summary>
-/// Rise-of-Kingdoms style top-down camera: WASD + screen-edge pan + scroll zoom.
-/// Pan/edge speed scales up when zoomed out so an 8000² kingdom map stays usable.
+/// LEGACY — superseded by OpenRtsCamera. Spawn Test strips this component.
 /// </summary>
 public class RTSCamera : MonoBehaviour
 {

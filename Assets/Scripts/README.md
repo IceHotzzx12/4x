@@ -2,39 +2,44 @@
 
 RoK / Fate War style: select armies, march on continuous NavMesh terrain, fight idle barbarians.
 
-Map scale constants: `Fantasy4xMapDesign.cs` (RoK ≈1200 km kingdom, **5k–8k** players/shard planning; prototype Terrain **4000²** @ 300 m/u).
+Map scale: `Fantasy4xMapDesign.cs` — **4×4** Terrain tiles → **8000²** kingdom, max height 150, ~3000 players planning.
 
-## Scripts
+## Active stack (OpenRTS — MIT)
 
 | File | Role |
 |------|------|
-| `ArmyUnit.cs` | Player army: Health / Attack / Speed / `isSelected` + NavMeshAgent |
-| `ArmyMarchController.cs` | LMB box-select, RMB march / attack |
-| `RTSCamera.cs` | WASD + edge scroll + clamped zoom |
-| `BarbarUnit.cs` | Neutral idle barbarians + tick combat |
+| `ThirdParty/OpenSourceRTS/Runtime/OpenRtsUnit.cs` | Selectable unit + NavMesh march + combat |
+| `ThirdParty/OpenSourceRTS/Runtime/OpenRtsSelection.cs` | LMB box-select, RMB march / attack |
+| `ThirdParty/OpenSourceRTS/Runtime/OpenRtsCamera.cs` | WASD + edge scroll + zoom-scaled pan |
 | `Editor/Fantasy4xTestScenario.cs` | **Spawn Test Scenario** + NavMesh bake |
+
+Upstream: MinaPecheux UnityTutorials-RTS (MIT). See `ThirdParty/OpenSourceRTS/ATTRIBUTION.md`.
+
+Works on **Unity 2022.3 LTS** and **Unity 6+** (Oliver: either is fine). Project stays on 2022.3.50f1 for now; continuous Terrain, not hex.
+
+## Legacy (unused)
+
+`ArmyUnit`, `ArmyMarchController`, `RTSCamera`, `BarbarUnit` — superseded by OpenRTS. Spawn Test removes them from the scene.
 
 ## How Oliver tests
 
-`WorldMap` on `main` is already Play-ready (Plains Terrain + test armies + NavMesh). Open the scene and press **Play** — no menu steps required.
+1. Open `Assets/Scenes/WorldMap.unity`
+2. Press **Play**
 
 Controls:
 
 - **LMB drag** — box-select blue armies
-- **RMB** on open field — all selected march (repath mid-march works)
-- **RMB** on red barbarian — chase + fight (1 dmg tick / second from Attack stats)
-- **WASD** / screen edge / mouse wheel — camera (never under terrain)
+- **RMB** on open field — selected march
+- **RMB** on red barbarian — chase + fight
+- **WASD** / screen edge / mouse wheel — camera
 
-If you recreate the map from scratch:
+If you recreate from scratch:
 
-1. Open project in **Unity 2022.3+** (AI Navigation package resolves on first open).
-2. **Fantasy 4x → Terrain → Create Plains Terrain (recommended)**
-3. **Fantasy 4x → Gameplay → Spawn Test Scenario**  
-   (bakes NavMesh via `NavMeshSurface`, places 3 blue armies + 3 barbarians, wires camera + march controller)  
-   Headless: `-executeMethod Fantasy4xTestScenario.SpawnTestScenarioBatch`
-4. Optional: **Fantasy 4x → Gameplay → Bake NavMesh (Terrain)** if you recreated terrain
+1. Open in **Unity 2022.3+** or **Unity 6+**
+2. **Fantasy 4x → Terrain → Create Kingdom Terrain Grid** (or equivalent heightmap menu)
+3. **Fantasy 4x → Gameplay → Spawn Test Scenario**
+4. Optional: **Fantasy 4x → Gameplay → Bake NavMesh (Terrain)**
 
 ## Package
 
 `com.unity.ai.navigation` (NavMeshSurface) is listed in `Packages/manifest.json`.
-Fallback bake: **Window → AI → Navigation → Bake**.
