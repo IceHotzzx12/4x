@@ -6,8 +6,8 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// Fantasy 4x → Terrain: RoK-scale kingdom as a seamless 4×4 Unity Terrain grid
-/// (visual neighbors only — not a gameplay hex grid).
+/// Fantasy 4x â†’ Terrain: RoK-scale kingdom as a seamless 4Ã—4 Unity Terrain grid
+/// (visual neighbors only â€” not a gameplay hex grid).
 /// </summary>
 [InitializeOnLoad]
 public static class HeightmapTerrainImporter
@@ -44,7 +44,7 @@ public static class HeightmapTerrainImporter
             CreateKingdomTerrainGrid(batchMode: true, showDialog: false);
             Fantasy4xTestScenario.ResyncTestScenarioAfterTerrainChange();
             SessionState.SetBool(GridSessionKey, true);
-            Debug.Log("[Fantasy4x] Auto-created KingdomTerrainGrid 4×4 + test scenario.");
+            Debug.Log("[Fantasy4x] Auto-created KingdomTerrainGrid 4Ã—4 + test scenario.");
         }
         catch (System.Exception ex)
         {
@@ -116,7 +116,7 @@ public static class HeightmapTerrainImporter
         Debug.Log(
             "[Fantasy4x] River mask ready (CC-BY 3.0 Blindman67).\n" +
             $"Path: {RiverMaskPath}\n" +
-            "Later: water / non-walkable — not pathfinding here.\n" +
+            "Later: water / non-walkable â€” not pathfinding here.\n" +
             Fantasy4xMapDesign.RokTierPassNote);
         Selection.activeObject = mask;
     }
@@ -204,10 +204,10 @@ public static class HeightmapTerrainImporter
         EditorSceneManager.SaveScene(scene);
 
         var msg =
-            $"[Fantasy4x] Kingdom grid {Tiles}×{Tiles} @ {TileSize} → " +
-            $"{Fantasy4xMapDesign.PrototypeMapWidthUnity}² u, maxH={MaxHeight}\n" +
+            $"[Fantasy4x] Kingdom grid {Tiles}Ã—{Tiles} @ {TileSize} â†’ " +
+            $"{Fantasy4xMapDesign.PrototypeMapWidthUnity}Â² u, maxH={MaxHeight}\n" +
             $"Heightmap {DefaultHeightmap} raw {rawMin:F3}..{rawMax:F3} (stretched)\n" +
-            $"≈ {Fantasy4xMapDesign.PrototypeKingdomWidthKm:F0} km @ {Fantasy4xMapDesign.MetersPerUnityUnit} m/u; " +
+            $"â‰ˆ {Fantasy4xMapDesign.PrototypeKingdomWidthKm:F0} km @ {Fantasy4xMapDesign.MetersPerUnityUnit} m/u; " +
             $"players target ~{Fantasy4xMapDesign.TargetPlayersPerKingdomShard}";
         Debug.Log(msg);
         if (showDialog)
@@ -340,12 +340,6 @@ public static class HeightmapTerrainImporter
         }
         if (importer.mipmapEnabled) { importer.mipmapEnabled = false; dirty = true; }
         if (importer.sRGBTexture) { importer.sRGBTexture = false; dirty = true; }
-        if (importer.textureType != TextureImporterType.SingleChannel)
-        {
-            importer.textureType = TextureImporterType.SingleChannel;
-            importer.singleChannelComponent = TextureImporterSingleChannelComponent.Red;
-            dirty = true;
-        }
         if (importer.maxTextureSize < 2048) { importer.maxTextureSize = 2048; dirty = true; }
         if (dirty)
             importer.SaveAndReimport();
