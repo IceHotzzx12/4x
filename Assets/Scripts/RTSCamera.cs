@@ -29,9 +29,9 @@ public class RTSCamera : MonoBehaviour
 
     void Awake()
     {
-        _cam = GetComponent<Camera>();
-        if (terrain == null)
-            terrain = Terrain.activeTerrain;
+        // Superseded by OpenRtsCamera — remove so pan/zoom does not double-fire.
+        Debug.LogWarning("[Fantasy4x] RTSCamera is legacy; destroying. Use OpenRtsCamera.");
+        Destroy(this);
     }
 
     void LateUpdate()

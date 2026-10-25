@@ -25,13 +25,13 @@ public class ArmyMarchController : MonoBehaviour
 
     void Awake()
     {
-        if (rtsCamera == null)
-            rtsCamera = Camera.main;
+        // Superseded by OpenRtsSelection — remove so inputs do not double-fire.
+        Debug.LogWarning("[Fantasy4x] ArmyMarchController is legacy; destroying. Use OpenRtsSelection.");
+        Destroy(this);
     }
 
     void Start()
     {
-        // Guarantee Game view looks at the test armies (avoids empty blue clear-color).
         FocusCameraOnArmies();
     }
 
