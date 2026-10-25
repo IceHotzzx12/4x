@@ -6,6 +6,9 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
+    path: Assets/Scenes/OuterWorldMap.unity
+    guid: ca57a59721399114d97b66d86f48d404
+  - enabled: 0
     path: Assets/Scenes/WorldMap.unity
     guid: 9f8c1a2b3d4e5f60718293a4b5c6d7e8
   m_configObjects: {}
