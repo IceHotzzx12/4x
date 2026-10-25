@@ -1,0 +1,7 @@
+﻿# Git LFS — Fantasy Kingdom sample textures that exceed GitHub 100MB
+Assets/FantasyKingdomSample/**/*.tif filter=lfs diff=lfs merge=lfs -text
+Assets/FantasyKingdomSample/**/*.tga filter=lfs diff=lfs merge=lfs -text
+Assets/FantasyKingdomSample/**/*.exr filter=lfs diff=lfs merge=lfs -text
+Assets/FantasyKingdomSample/**/*.fbx filter=lfs diff=lfs merge=lfs -text
+Assets/FantasyKingdomSample/**/*.st9 filter=lfs diff=lfs merge=lfs -text
+Assets/FantasyKingdomSample/**/*.bytes filter=lfs diff=lfs merge=lfs -text

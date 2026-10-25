@@ -20,13 +20,20 @@ public static class FantasyKingdomOuterMapSetup
     public const string AttributionPath = "Assets/ThirdParty/FantasyKingdom/ATTRIBUTION.md";
 
     /// <summary>
-    /// Scales the dense demo kingdom so ~500u OpenRTS marches feel RoK-like
-    /// (sample town is otherwise city-block scale).
+    /// Scales the dense demo kingdom so OpenRTS marches feel RoK open-field
+    /// (sample town is otherwise city-block scale). Kept at 8; NavMesh bakes a
+    /// dedicated march plane only (full-mesh bake OOMs on this sample).
     /// </summary>
     public const float EnvironmentScale = 8f;
 
+    /// <summary>
+    /// Unity default Plane is 10×10; localScale 100 → 1000u local → 8000u world after ×8.
+    /// </summary>
+    public const float MarchPlaneLocalScale = 100f;
+
     static readonly string[] DemoSceneCandidates =
     {
+        "Assets/FantasyKingdomSample/Scenes/Demo.unity",
         "Assets/Scenes/Demo.unity",
         "Assets/FantasyKingdom/Scenes/Demo.unity",
         "Assets/Fantasy Kingdom/Scenes/Demo.unity",
@@ -36,13 +43,13 @@ public static class FantasyKingdomOuterMapSetup
     static readonly string[] SampleCameraNameHints =
     {
         "Main Camera", "PlayerCamera", "Cinemachine", "FreeLook", "FPS", "FirstPerson",
-        "DemoCamera", "Orbit", "FlyCamera", "SimpleCamera"
+        "DemoCamera", "Orbit", "FlyCamera", "SimpleCamera", "RTSCamera"
     };
 
     static readonly string[] SampleCharacterNameHints =
     {
         "Player", "Character", "Hero", "NPC", "Wanderer", "FirstPerson", "FPSController",
-        "Capsule", "Graphy", "StatsManager", "EventSystem"
+        "Capsule", "Graphy", "StatsManager", "EventSystem", "StatsCanvas", "CameraSwitch"
     };
 
     [MenuItem("Fantasy 4x/World/Setup Fantasy Kingdom Outer Map", false, 50)]
@@ -103,21 +110,34 @@ public static class FantasyKingdomOuterMapSetup
 
         Debug.Log("[Fantasy4x] Opening Fantasy Kingdom demo: " + demoPath);
         var scene = EditorSceneManager.OpenScene(demoPath, OpenSceneMode.Single);
+        Debug.Log("[Fantasy4x] Demo scene loaded. roots=" + scene.rootCount);
 
+        Debug.Log("[Fantasy4x] Stripping sample cameras/characters…");
+        StripSampleCamerasAndCharacters();
+
+        Debug.Log("[Fantasy4x] Building scale root ×" + EnvironmentScale + "…");
         var root = EnsureScaleRoot();
         root.transform.localScale = Vector3.one * EnvironmentScale;
+        Debug.Log("[Fantasy4x] Scale root children=" + root.transform.childCount);
 
-        StripSampleCamerasAndCharacters();
-        WireOpenRts(root.transform.position);
-        BakeNavMeshForKingdom(root);
-        SpawnOpenRtsTestArmies(root.transform.position);
+        Debug.Log("[Fantasy4x] Adding OuterMarchField + baking NavMesh (plane only)…");
+        var field = EnsureMarchField(root);
+        BakeNavMeshOnMarchField(field);
+
+        var focus = field.transform.position;
+        Debug.Log("[Fantasy4x] Wiring OpenRTS camera/selection…");
+        WireOpenRts(focus);
+
+        Debug.Log("[Fantasy4x] Spawning OpenRTS test armies…");
+        SpawnOpenRtsTestArmies(focus);
 
         Directory.CreateDirectory("Assets/Scenes");
+        Debug.Log("[Fantasy4x] Saving " + OuterMapScenePath + "…");
         EditorSceneManager.SaveScene(scene, OuterMapScenePath);
-        AssetDatabase.Refresh();
+        AssetDatabase.SaveAssets();
 
         SetPrimaryPlayScene(OuterMapScenePath);
-        EditorSceneManager.OpenScene(OuterMapScenePath, OpenSceneMode.Single);
+        EnforceOldInputManager();
 
         Debug.Log(
             $"[Fantasy4x] Outer map saved: {OuterMapScenePath} " +
@@ -144,7 +164,6 @@ public static class FantasyKingdomOuterMapSetup
                 return p;
         }
 
-        // Prefer Demo.unity that sits near Fantasy Kingdom license.txt
         var licenseGuids = AssetDatabase.FindAssets("license t:TextAsset");
         foreach (var guid in licenseGuids)
         {
@@ -157,7 +176,6 @@ public static class FantasyKingdomOuterMapSetup
             var demo = dir + "/Scenes/Demo.unity";
             if (File.Exists(demo))
                 return demo;
-            // license often at Assets/license.txt → Assets/Scenes/Demo.unity
             if (dir == "Assets" && File.Exists("Assets/Scenes/Demo.unity"))
                 return "Assets/Scenes/Demo.unity";
         }
@@ -189,10 +207,10 @@ public static class FantasyKingdomOuterMapSetup
         foreach (var t in SceneManager.GetActiveScene().GetRootGameObjects())
         {
             if (t == root) continue;
-            // Keep lighting/global volumes as siblings; parent environment under scale root.
             var n = t.name;
             if (n == "Directional Light" || n.Contains("Global Volume") || n.Contains("Probe") ||
-                n.Contains("URP") || n.Contains("Render") || n == "EventSystem")
+                n.Contains("URP") || n.Contains("Render") || n == "EventSystem" ||
+                n == "Main Camera" || n == "OpenRtsSelection")
                 continue;
             move.Add(t.transform);
         }
@@ -205,63 +223,117 @@ public static class FantasyKingdomOuterMapSetup
 
     static void StripSampleCamerasAndCharacters()
     {
-        foreach (var cam in Object.FindObjectsOfType<Camera>(true))
+        var cams = Object.FindObjectsByType<Camera>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        foreach (var cam in cams)
         {
+            if (cam == null) continue;
             var go = cam.gameObject;
             var name = go.name;
             var isSample = SampleCameraNameHints.Any(h =>
                 name.IndexOf(h, System.StringComparison.OrdinalIgnoreCase) >= 0);
-            // Remove extra cameras; we recreate Main Camera for OpenRTS.
-            if (isSample || cam.CompareTag("MainCamera") || Camera.main == cam)
+            if (isSample || cam.CompareTag("MainCamera"))
             {
                 Object.DestroyImmediate(go);
                 continue;
             }
 
-            // Disable leftover cinematic cams
             go.SetActive(false);
         }
 
-        foreach (var root in SceneManager.GetActiveScene().GetRootGameObjects())
-            StripNamedHierarchy(root.transform);
-
-        // Remove Graphy / sample HUD if present
-        foreach (var mb in Object.FindObjectsOfType<MonoBehaviour>(true))
+        // Destroy known sample camera/controller prefab roots by name (no full MonoBehaviour scan).
+        var destroyNames = new[]
         {
-            if (mb == null) continue;
-            var tn = mb.GetType().Name;
-            if (tn.IndexOf("Graphy", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
-                tn.IndexOf("FPSCounter", System.StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                Object.DestroyImmediate(mb.gameObject);
-            }
+            "RTSCameraController", "CameraSwitch", "StatsCanvas", "Graphy", "FreeLookCamera",
+            "GameplayCamera", "Cinemachine", "Player"
+        };
+        foreach (var root in SceneManager.GetActiveScene().GetRootGameObjects())
+            StripNamedHierarchy(root.transform, destroyNames);
+
+        // Prefab instances often nest under compositions — second pass on all transforms with CharacterController
+        foreach (var cc in Object.FindObjectsByType<CharacterController>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+        {
+            if (cc != null)
+                Object.DestroyImmediate(cc.gameObject);
         }
     }
 
-    static void StripNamedHierarchy(Transform t)
+    static void StripNamedHierarchy(Transform t, string[] destroyNames)
     {
         for (var i = t.childCount - 1; i >= 0; i--)
-            StripNamedHierarchy(t.GetChild(i));
+            StripNamedHierarchy(t.GetChild(i), destroyNames);
 
+        if (t == null) return;
         var n = t.name;
-        if (SampleCharacterNameHints.Any(h => n.IndexOf(h, System.StringComparison.OrdinalIgnoreCase) >= 0))
+        if (destroyNames.Any(h => n.IndexOf(h, System.StringComparison.OrdinalIgnoreCase) >= 0) ||
+            SampleCharacterNameHints.Any(h => n.Equals(h, System.StringComparison.OrdinalIgnoreCase)))
         {
-            // Keep static environment props named "PlayerHouse" etc. only if they have MeshRenderer and no CharacterController
             if (t.GetComponent<CharacterController>() != null ||
                 t.GetComponent<AudioListener>() != null ||
-                t.name.Equals("Player", System.StringComparison.OrdinalIgnoreCase) ||
-                t.name.IndexOf("FPS", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
-                t.name.IndexOf("Graphy", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                t.GetComponent<Camera>() != null ||
+                destroyNames.Any(h => n.IndexOf(h, System.StringComparison.OrdinalIgnoreCase) >= 0))
             {
                 Object.DestroyImmediate(t.gameObject);
             }
         }
     }
 
+    static GameObject EnsureMarchField(GameObject root)
+    {
+        var existing = GameObject.Find("OuterMarchNav");
+        if (existing != null)
+            Object.DestroyImmediate(existing);
+        existing = GameObject.Find("OuterMarchField");
+        if (existing != null)
+            Object.DestroyImmediate(existing);
+
+        // Holder + child plane: NavMeshSurface CollectObjects.Children (no Self enum).
+        var holder = new GameObject("OuterMarchNav");
+        holder.transform.SetParent(root.transform, false);
+        holder.transform.localPosition = Vector3.zero;
+        holder.transform.localRotation = Quaternion.identity;
+        holder.transform.localScale = Vector3.one;
+
+        var field = GameObject.CreatePrimitive(PrimitiveType.Plane);
+        field.name = "OuterMarchField";
+        field.transform.SetParent(holder.transform, false);
+        field.transform.localPosition = new Vector3(0f, -0.05f, 0f);
+        field.transform.localRotation = Quaternion.identity;
+        field.transform.localScale = new Vector3(MarchPlaneLocalScale, 1f, MarchPlaneLocalScale);
+
+        // Keep collider for NavMesh; hide renderer so kingdom art stays visible.
+        var rend = field.GetComponent<MeshRenderer>();
+        if (rend != null)
+            Object.DestroyImmediate(rend);
+
+        return holder;
+    }
+
+    static void BakeNavMeshOnMarchField(GameObject marchNavHolder)
+    {
+        // IMPORTANT: do NOT bake RenderMeshes of the whole kingdom — that OOMed/crashed Olli-PC.
+        var surface = marchNavHolder.GetComponent<NavMeshSurface>();
+        if (surface == null)
+            surface = marchNavHolder.AddComponent<NavMeshSurface>();
+        surface.collectObjects = CollectObjects.Children;
+        surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
+        surface.overrideVoxelSize = true;
+        surface.voxelSize = 0.5f;
+        surface.BuildNavMesh();
+
+        var tri = NavMesh.CalculateTriangulation();
+        var n = tri.indices != null ? tri.indices.Length / 3 : 0;
+        Debug.Log($"[Fantasy4x] OuterMarchField NavMesh triangles={n}");
+        if (n < 10)
+            Debug.LogWarning("[Fantasy4x] NavMesh bake produced very few triangles — marches may fail.");
+    }
+
     static void WireOpenRts(Vector3 focus)
     {
-        foreach (var legacy in Object.FindObjectsOfType<ArmyMarchController>())
+        foreach (var legacy in Object.FindObjectsByType<ArmyMarchController>(FindObjectsSortMode.None))
             Object.DestroyImmediate(legacy.gameObject);
+
+        foreach (var oldCam in Object.FindObjectsByType<OpenRtsCamera>(FindObjectsSortMode.None))
+            Object.DestroyImmediate(oldCam.gameObject);
 
         var camGo = new GameObject("Main Camera");
         var cam = camGo.AddComponent<Camera>();
@@ -277,7 +349,7 @@ public static class FantasyKingdomOuterMapSetup
         camGo.transform.position = focus + new Vector3(0f, 120f * EnvironmentScale, -80f * EnvironmentScale);
         camGo.transform.rotation = Quaternion.Euler(55f, 0f, 0f);
 
-        var selection = Object.FindObjectOfType<OpenRtsSelection>();
+        var selection = Object.FindFirstObjectByType<OpenRtsSelection>();
         if (selection == null)
         {
             var go = new GameObject("OpenRtsSelection");
@@ -287,37 +359,13 @@ public static class FantasyKingdomOuterMapSetup
         selection.rtsCamera = cam;
     }
 
-    static void BakeNavMeshForKingdom(GameObject root)
-    {
-        var surface = root.GetComponent<NavMeshSurface>();
-        if (surface == null)
-            surface = root.AddComponent<NavMeshSurface>();
-        surface.collectObjects = CollectObjects.Children;
-        surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
-        surface.BuildNavMesh();
-
-        var tri = NavMesh.CalculateTriangulation();
-        var n = tri.indices != null ? tri.indices.Length / 3 : 0;
-        Debug.Log($"[Fantasy4x] Fantasy Kingdom NavMesh triangles={n}");
-        if (n < 50)
-        {
-            // Dense kingdom may lack mesh colliders — fall back to render meshes.
-            surface.useGeometry = NavMeshCollectGeometry.RenderMeshes;
-            surface.BuildNavMesh();
-            tri = NavMesh.CalculateTriangulation();
-            n = tri.indices != null ? tri.indices.Length / 3 : 0;
-            Debug.Log($"[Fantasy4x] NavMesh fallback RenderMeshes triangles={n}");
-        }
-    }
-
     static void SpawnOpenRtsTestArmies(Vector3 center)
     {
-        foreach (var u in Object.FindObjectsOfType<OpenRtsUnit>())
+        foreach (var u in Object.FindObjectsByType<OpenRtsUnit>(FindObjectsSortMode.None))
             Object.DestroyImmediate(u.gameObject);
 
         EnsureUnitMaterials(out var playerMat, out var barbMat);
 
-        // March spacing after scale — RoK-style separation on the outer map.
         var spacing = 60f * EnvironmentScale;
         var playerOffsets = new[]
         {
@@ -421,6 +469,29 @@ public static class FantasyKingdomOuterMapSetup
         EditorBuildSettings.scenes = scenes.ToArray();
         EditorSceneManager.OpenScene(path, OpenSceneMode.Single);
         Debug.Log("[Fantasy4x] EditorBuildSettings primary scene → " + path);
+    }
+
+    /// <summary>
+    /// OpenRTS uses legacy Input.*; keep Active Input Handling = Input Manager (Old) = 0.
+    /// </summary>
+    static void EnforceOldInputManager()
+    {
+        const string settingsPath = "ProjectSettings/ProjectSettings.asset";
+        // Always pin via YAML — OpenRTS needs Input Manager (Old)=0; Input System package may flip this.
+        if (!File.Exists(settingsPath))
+            return;
+        var text = File.ReadAllText(settingsPath);
+        if (text.Contains("activeInputHandler: 1") || text.Contains("activeInputHandler: 2"))
+        {
+            text = text.Replace("activeInputHandler: 1", "activeInputHandler: 0")
+                       .Replace("activeInputHandler: 2", "activeInputHandler: 0");
+            File.WriteAllText(settingsPath, text);
+            Debug.Log("[Fantasy4x] Forced activeInputHandler=0 (Input Manager Old).");
+        }
+        else
+        {
+            Debug.Log("[Fantasy4x] activeInputHandler already Input Manager (Old).");
+        }
     }
 }
 #endif

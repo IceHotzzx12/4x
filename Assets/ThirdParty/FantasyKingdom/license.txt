@@ -1,0 +1,15 @@
+IMPORTANT — Educational / non-commercial use only
+
+This project package (Unity Asset Store ID 298128 — Fantasy Kingdom in Unity 6 | URP)
+is intended for educational purposes only. By using the Fantasy Kingdom in Unity 6 URP
+project package, you agree to the terms outlined in the Non-standard Unity Asset Store
+End User License Agreement (“EULA”).
+
+Unity’s Fantasy Kingdom demo and the assets contained within are intended to be used
+for educational purposes only. For commercial use of these environment assets, purchase
+Synty Studios’ POLYGON Fantasy Kingdom on the Unity Asset Store.
+
+Source: Asset Store package page / Unity Originals demo licensing notice.
+Full publisher EULA ships with the official package download; this stub documents the
+same educational restriction for the Fantasy 4x prototype import under
+Assets/FantasyKingdomSample/.
