@@ -58,7 +58,9 @@ public static class TerrainFantasyUpgrade
         }
     }
 
-    [InitializeOnLoadMethod]
+    // Auto-run disabled — MassObjectSpawner (SafeFantasyAssets CC0) owns densify + water.
+    // Use menu Fantasy 4x → World → Upgrade Fantasy Graphics for splat/layers only.
+    // [InitializeOnLoadMethod]
     static void AutoUpgradeOnce()
     {
         EditorApplication.delayCall += () =>
