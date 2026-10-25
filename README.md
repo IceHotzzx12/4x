@@ -5,15 +5,20 @@ Mobile fantasy 4X / strategy game in Unity (3D top-down), inspired by Rise of Ki
 ## Quick test (Oliver)
 
 1. Open `C:\Users\miske\dev\4x` in **Unity 6000.0.32f1** (URP)
-2. Open scene **`Assets/Scenes/WorldMap.unity`**
-3. If forests look thin: **Fantasy 4x → World → Mass Spawn Safe Fantasy (CC0)**
+2. Preferred outer map (after Fantasy Kingdom import): **`Assets/Scenes/OuterWorldMap.unity`**
+3. Fallback meadow: **`Assets/Scenes/WorldMap.unity`**
 4. Play: LMB-drag select → RMB march / attack · WASD / edge pan · **mouse wheel zoom**
 
-## Visuals (commercial-safe)
+## Fantasy Kingdom prototype (educational)
 
-- **Kenney CC0** trees / rocks / bushes / ruins under [`Assets/SafeFantasyAssets/`](Assets/SafeFantasyAssets/ATTRIBUTION.md)
-- Mass spawn (≥3000 Terrain trees + URP glossy river water): `MassObjectSpawner`
-- **No** Fantasy Kingdom / Synty sample — educational / non-commercial EULA only; not for shipping
+- Free Asset Store sample **298128** — **Add to My Assets** only (do **not** buy Synty).
+- EULA: [`Assets/ThirdParty/FantasyKingdom/ATTRIBUTION.md`](Assets/ThirdParty/FantasyKingdom/ATTRIBUTION.md)
+- After import: **Fantasy 4x → World → Setup Fantasy Kingdom Outer Map**
+
+## Visuals
+
+- Prototype outer look: Fantasy Kingdom sample (educational / non-commercial)
+- Commercial-safe fallback: Kenney CC0 under [`Assets/SafeFantasyAssets/`](Assets/SafeFantasyAssets/ATTRIBUTION.md)
 
 ## Docs
 
