@@ -9,8 +9,10 @@ using UnityEngine.SceneManagement;
 using Unity.AI.Navigation;
 
 /// <summary>
-/// Mass-places Kenney CC0 trees/rocks/bushes via the Terrain Tree System (≥3000),
-/// sparse ruins as GameObjects, and glossy URP water quads in riverbeds.
+/// Mass-places Kenney CC0 trees/rocks/bushes as visible GameObjects (≥3000).
+/// URP cannot draw custom Lit meshes as Terrain trees (Soft Occlusion required) —
+/// so we use real MeshRenderer instances for a dense, commercial-safe look.
+/// Sparse ruins + glossy URP water in riverbeds.
 /// Menu: Fantasy 4x → World → Mass Spawn Safe Fantasy (CC0)
 /// </summary>
 public static class MassObjectSpawner
@@ -20,12 +22,13 @@ public static class MassObjectSpawner
     const string MatFolder = SafeRoot + "/Materials";
     const string RiverMaskPath = "Assets/Terrain/RiverMask/Blindman67/River.png";
     const string WorldMapScenePath = "Assets/Scenes/WorldMap.unity";
-    const string ForestGoRootName = "FantasyForestDecor";
+    const string ForestGoRootName = "SafeFantasyForest";
+    const string LegacyForestName = "FantasyForestDecor";
     const string WaterRootName = "RiverWater3D";
     const string RuinsRootName = "SafeFantasyRuins";
-    const string SessionKey = "Fantasy4x.MassObjectSpawner.v1";
+    const string SessionKey = "Fantasy4x.MassObjectSpawner.v2";
 
-    const int TargetTerrainTreeCount = 3200;
+    const int TargetForestCount = 3200;
     const int MaxRuinCount = 48;
     const float ForestHeightMax = 0.45f;
     const float RockSlopeCos = 0.78f; // ~39° from vertical normal.y
@@ -75,12 +78,8 @@ public static class MassObjectSpawner
             if (!Directory.Exists(Path.GetFullPath(SafeRoot + "/Models/Trees"))) return;
             if (Terrain.activeTerrains == null || Terrain.activeTerrains.Length < 16) return;
 
-            var trees = 0;
-            foreach (var t in Terrain.activeTerrains)
-                if (t != null && t.terrainData != null)
-                    trees += t.terrainData.treeInstanceCount;
-
-            if (trees >= TargetTerrainTreeCount)
+            var forest = GameObject.Find(ForestGoRootName);
+            if (forest != null && forest.transform.childCount >= TargetForestCount)
             {
                 SessionState.SetBool(SessionKey, true);
                 return;
@@ -113,7 +112,7 @@ public static class MassObjectSpawner
         ClearLegacyDecor();
 
         var river = LoadRiverMask();
-        ScatterTerrainTrees(terrains, catalog, river);
+        var forestCount = PlaceVisibleForestGOs(terrains, catalog, river);
         PlaceRuins(terrains, catalog, river);
         PlaceUrpWater(terrains, river);
         RebakeNavMeshes(terrains);
@@ -122,21 +121,18 @@ public static class MassObjectSpawner
         catch (System.Exception ex) { Debug.LogWarning("[Fantasy4x] Resync: " + ex.Message); }
 
         EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
-        EditorSceneManager.SaveScene(SceneManager.GetActiveScene());
+        EditorSceneManager.SaveScene(SceneManager.GetActiveScene(), WorldMapScenePath);
         AssetDatabase.SaveAssets();
         SessionState.SetBool(SessionKey, true);
 
-        var terrainTrees = 0;
-        foreach (var t in terrains)
-            terrainTrees += t.terrainData.treeInstanceCount;
         var ruins = GameObject.Find(RuinsRootName);
         var ruinCount = ruins != null ? ruins.transform.childCount : 0;
         var water = GameObject.Find(WaterRootName);
         var waterCount = water != null ? water.transform.childCount : 0;
 
         var msg =
-            $"[Fantasy4x] Safe CC0 mass spawn OK: terrainTrees={terrainTrees}, ruins={ruinCount}, waterCells={waterCount}, tiles={terrains.Count}.\n" +
-            "License: Kenney Nature / Fantasy Town / Castle kits — CC0 (see Assets/SafeFantasyAssets/ATTRIBUTION.md).";
+            $"[Fantasy4x] Safe CC0 VISIBLE forest OK: forestGOs={forestCount}, ruins={ruinCount}, waterCells={waterCount}, tiles={terrains.Count}.\n" +
+            "Look for SafeFantasyForest in Hierarchy. License: Kenney CC0.";
         Debug.Log(msg);
         if (showDialog)
             EditorUtility.DisplayDialog("Mass Object Spawner", msg, "OK");
@@ -152,19 +148,23 @@ public static class MassObjectSpawner
 
     static void ClearLegacyDecor()
     {
-        // Remove old GameObject forests / water from previous meadow look.
-        foreach (var name in new[] { ForestGoRootName, "RiverWaterMeshes", WaterRootName, RuinsRootName, "SafeFantasyDecor" })
+        foreach (var name in new[]
+                 {
+                     ForestGoRootName, LegacyForestName, "RiverWaterMeshes", WaterRootName,
+                     RuinsRootName, "SafeFantasyDecor"
+                 })
         {
             var go = GameObject.Find(name);
             if (go != null)
                 Object.DestroyImmediate(go);
         }
 
-        // Clear previous Terrain tree instances (keep prototypes until we replace).
+        // Clear broken Terrain trees (URP Lit Kenney meshes do not draw as Soft Occlusion trees).
         foreach (var t in CollectTerrains())
         {
             if (t == null || t.terrainData == null) continue;
             t.terrainData.treeInstances = System.Array.Empty<TreeInstance>();
+            t.terrainData.treePrototypes = System.Array.Empty<TreePrototype>();
             EditorUtility.SetDirty(t.terrainData);
             t.Flush();
         }
@@ -312,115 +312,127 @@ public static class MassObjectSpawner
         return mat;
     }
 
-    static void ScatterTerrainTrees(List<Terrain> terrains, Catalog catalog, Texture2D river)
+    /// <summary>
+    /// Visible MeshRenderer forests. Terrain trees stay unused — URP rejects non-Soft-Occlusion prototypes.
+    /// </summary>
+    static int PlaceVisibleForestGOs(List<Terrain> terrains, Catalog catalog, Texture2D river)
     {
-        var prototypes = new List<TreePrototype>();
-        foreach (var t in catalog.Trees)
-            prototypes.Add(new TreePrototype { prefab = t });
-        foreach (var b in catalog.Bushes)
-            prototypes.Add(new TreePrototype { prefab = b });
-        foreach (var r in catalog.Rocks)
-            prototypes.Add(new TreePrototype { prefab = r });
-
-        var treeProtoCount = catalog.Trees.Count;
-        var bushProtoStart = treeProtoCount;
-        var bushProtoCount = catalog.Bushes.Count;
-        var rockProtoStart = bushProtoStart + bushProtoCount;
-        var rockProtoCount = catalog.Rocks.Count;
-
+        var root = new GameObject(ForestGoRootName);
         var mapW = Fantasy4xMapDesign.PrototypeMapWidthUnity;
-        var perTile = Mathf.Max(120, TargetTerrainTreeCount / Mathf.Max(1, terrains.Count));
+        var mapCenter = new Vector3(mapW * 0.5f, 0f, mapW * 0.5f);
         var rng = new System.Random(2026);
-        var total = 0;
+        var placed = 0;
+        var perTile = Mathf.Max(180, TargetForestCount / Mathf.Max(1, terrains.Count));
+
+        // Extra-dense clumps around spawn so Game view immediately shows forest.
+        var clumpCenters = new[]
+        {
+            mapCenter + new Vector3(-280f, 0f, 180f),
+            mapCenter + new Vector3(320f, 0f, 220f),
+            mapCenter + new Vector3(-180f, 0f, 480f),
+            mapCenter + new Vector3(220f, 0f, -360f),
+            mapCenter + new Vector3(-620f, 0f, -80f),
+            mapCenter + new Vector3(580f, 0f, 360f),
+            mapCenter + new Vector3(40f, 0f, 980f),
+            mapCenter + new Vector3(-820f, 0f, 520f),
+            mapCenter + new Vector3(760f, 0f, -420f),
+            mapCenter + new Vector3(-120f, 0f, -720f)
+        };
+        foreach (var c in clumpCenters)
+        {
+            for (var i = 0; i < 70; i++)
+            {
+                var ox = (float)(rng.NextDouble() * 2.0 - 1.0) * 140f;
+                var oz = (float)(rng.NextDouble() * 2.0 - 1.0) * 140f;
+                var wx = c.x + ox;
+                var wz = c.z + oz;
+                if (SampleRiver(river, wx / mapW, wz / mapW) > RiverAvoid) continue;
+                var terrain = FindTerrain(terrains, wx, wz);
+                if (terrain == null) continue;
+                var prefab = catalog.Trees[rng.Next(catalog.Trees.Count)];
+                if (catalog.Bushes.Count > 0 && (float)rng.NextDouble() < 0.25f)
+                    prefab = catalog.Bushes[rng.Next(catalog.Bushes.Count)];
+                placed += PlaceOne(root, prefab, terrain, wx, wz, rng, 1.0f, 1.8f) ? 1 : 0;
+            }
+        }
 
         foreach (var terrain in terrains)
         {
             var td = terrain.terrainData;
-            td.treePrototypes = prototypes.ToArray();
-            var instances = new List<TreeInstance>(perTile + 64);
             var pos = terrain.transform.position;
             var size = td.size;
-            var attempts = perTile * 8;
-            var placed = 0;
-
-            for (var a = 0; a < attempts && placed < perTile; a++)
+            var attempts = perTile * 10;
+            var tilePlaced = 0;
+            for (var a = 0; a < attempts && tilePlaced < perTile; a++)
             {
                 var nx = (float)rng.NextDouble();
                 var nz = (float)rng.NextDouble();
                 var wx = pos.x + nx * size.x;
                 var wz = pos.z + nz * size.z;
-                var u = wx / mapW;
-                var v = wz / mapW;
-                var riverW = SampleRiver(river, u, v);
-                if (riverW > RiverAvoid) continue;
+                if (SampleRiver(river, wx / mapW, wz / mapW) > RiverAvoid) continue;
 
                 var h01 = td.GetInterpolatedHeight(nx, nz) / Mathf.Max(0.01f, size.y);
                 var nrm = td.GetInterpolatedNormal(nx, nz);
                 var steep = nrm.y < RockSlopeCos;
                 var valley = h01 < ForestHeightMax;
 
-                int proto;
-                float widthScale;
-                float heightScale;
-
-                if (steep && rockProtoCount > 0)
+                GameObject prefab;
+                float sMin, sMax;
+                if (steep && catalog.Rocks.Count > 0)
                 {
-                    // Cliffs / steep slopes → rocks
-                    if ((float)rng.NextDouble() > 0.55f) continue;
-                    proto = rockProtoStart + rng.Next(rockProtoCount);
-                    widthScale = Mathf.Lerp(1.2f, 2.4f, (float)rng.NextDouble());
-                    heightScale = widthScale;
+                    if ((float)rng.NextDouble() > 0.5f) continue;
+                    prefab = catalog.Rocks[rng.Next(catalog.Rocks.Count)];
+                    sMin = 1.4f;
+                    sMax = 2.8f;
                 }
-                else if (valley && treeProtoCount > 0)
+                else if (valley && catalog.Trees.Count > 0)
                 {
-                    // Dense forests in valleys
                     var dens = Mathf.PerlinNoise(wx * 0.0012f, wz * 0.0012f);
-                    if (dens < 0.28f) continue;
-                    if ((float)rng.NextDouble() > 0.72f && bushProtoCount > 0)
+                    if (dens < 0.25f) continue;
+                    if (catalog.Bushes.Count > 0 && (float)rng.NextDouble() > 0.7f)
                     {
-                        proto = bushProtoStart + rng.Next(bushProtoCount);
-                        widthScale = Mathf.Lerp(0.8f, 1.4f, (float)rng.NextDouble());
+                        prefab = catalog.Bushes[rng.Next(catalog.Bushes.Count)];
+                        sMin = 0.9f;
+                        sMax = 1.5f;
                     }
                     else
                     {
-                        proto = rng.Next(treeProtoCount);
-                        widthScale = Mathf.Lerp(0.85f, 1.55f, (float)rng.NextDouble());
+                        prefab = catalog.Trees[rng.Next(catalog.Trees.Count)];
+                        sMin = 1.1f;
+                        sMax = 2.0f;
                     }
-                    heightScale = widthScale * Mathf.Lerp(0.9f, 1.15f, (float)rng.NextDouble());
                 }
-                else if (bushProtoCount > 0 && (float)rng.NextDouble() < 0.12f)
+                else if (catalog.Bushes.Count > 0 && (float)rng.NextDouble() < 0.1f)
                 {
-                    proto = bushProtoStart + rng.Next(bushProtoCount);
-                    widthScale = Mathf.Lerp(0.7f, 1.2f, (float)rng.NextDouble());
-                    heightScale = widthScale;
+                    prefab = catalog.Bushes[rng.Next(catalog.Bushes.Count)];
+                    sMin = 0.8f;
+                    sMax = 1.3f;
                 }
                 else continue;
 
-                instances.Add(new TreeInstance
-                {
-                    position = new Vector3(nx, 0f, nz),
-                    prototypeIndex = proto,
-                    widthScale = widthScale,
-                    heightScale = heightScale,
-                    rotation = (float)rng.NextDouble() * Mathf.PI * 2f,
-                    color = Color.white,
-                    lightmapColor = Color.white
-                });
+                if (!PlaceOne(root, prefab, terrain, wx, wz, rng, sMin, sMax)) continue;
+                tilePlaced++;
                 placed++;
             }
-
-            td.SetTreeInstances(instances.ToArray(), snapToHeightmap: true);
-            terrain.treeDistance = 8000f;
-            terrain.treeBillboardDistance = 2200f;
-            terrain.treeCrossFadeLength = 40f;
-            terrain.treeMaximumFullLODCount = 150;
-            terrain.drawTreesAndFoliage = true;
-            EditorUtility.SetDirty(td);
-            terrain.Flush();
-            total += instances.Count;
         }
 
-        Debug.Log($"[Fantasy4x] Terrain trees placed: {total} (target ≥{TargetTerrainTreeCount}).");
+        Debug.Log($"[Fantasy4x] Visible forest GOs: {placed} under {ForestGoRootName}");
+        return placed;
+    }
+
+    static bool PlaceOne(
+        GameObject root, GameObject prefab, Terrain terrain, float wx, float wz,
+        System.Random rng, float sMin, float sMax)
+    {
+        if (prefab == null || terrain == null) return false;
+        var y = terrain.SampleHeight(new Vector3(wx, 0f, wz)) + terrain.transform.position.y;
+        var go = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
+        go.transform.SetParent(root.transform, true);
+        go.transform.position = new Vector3(wx, y, wz);
+        go.transform.rotation = Quaternion.Euler(0f, (float)rng.NextDouble() * 360f, 0f);
+        var s = Mathf.Lerp(sMin, sMax, (float)rng.NextDouble());
+        go.transform.localScale = Vector3.one * s;
+        return true;
     }
 
     static void PlaceRuins(List<Terrain> terrains, Catalog catalog, Texture2D river)
