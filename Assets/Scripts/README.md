@@ -2,6 +2,8 @@
 
 RoK / Fate War style: select armies, march on continuous NavMesh terrain, fight idle barbarians.
 
+Map scale constants: `Fantasy4xMapDesign.cs` (RoK ≈1200 km kingdom, **5k–8k** players/shard planning; prototype Terrain **4000²** @ 300 m/u).
+
 ## Scripts
 
 | File | Role |

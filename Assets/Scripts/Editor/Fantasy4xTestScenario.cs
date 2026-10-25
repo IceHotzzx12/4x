@@ -213,6 +213,24 @@ public static class Fantasy4xTestScenario
             "OK");
     }
 
+    /// <summary>Public entry for HeightmapTerrainImporter after Create/Re-apply.</summary>
+    public static void EnsurePlainsTerrainVisualsPublic(Terrain terrain)
+    {
+        if (terrain != null)
+            EnsurePlainsTerrainVisuals(terrain);
+    }
+
+    /// <summary>Re-bake NavMesh and re-place test armies after Terrain size/heights change.</summary>
+    public static void ResyncTestScenarioAfterTerrainChange()
+    {
+        if (!TrySpawnTestScenario(showDialogs: false))
+            throw new System.InvalidOperationException("ResyncTestScenario failed (no Terrain?).");
+        EditorSceneManager.MarkSceneDirty(SceneManager.GetActiveScene());
+        EditorSceneManager.SaveScene(SceneManager.GetActiveScene());
+        AssetDatabase.SaveAssets();
+        Debug.Log("[Fantasy4x] Test scenario re-synced after Terrain change.");
+    }
+
     /// <summary>
     /// Terrain without TerrainLayers often looks empty/black in Game view.
     /// Adds a simple tiled grass diffuse so the plains read as a map.
@@ -388,7 +406,7 @@ public static class Fantasy4xTestScenario
     static void PlaceAgentOnNavMesh(NavMeshAgent agent, Vector3 desired)
     {
         // Edit/batchmode: set transform explicitly — Warp alone may not move the GameObject.
-        if (NavMesh.SamplePosition(desired, out var hit, 200f, NavMesh.AllAreas))
+        if (NavMesh.SamplePosition(desired, out var hit, 500f, NavMesh.AllAreas))
         {
             agent.transform.position = hit.position;
             agent.Warp(hit.position);
@@ -492,7 +510,8 @@ public static class Fantasy4xTestScenario
         surface.defaultArea = 0;
         surface.minRegionArea = 1f;
         surface.overrideVoxelSize = true;
-        surface.voxelSize = 1f;
+        // Coarser on RoK-scale ~4000² maps (mobile bake time).
+        surface.voxelSize = size.x >= 3000f ? 3f : 1f;
         surface.overrideTileSize = true;
         surface.tileSize = 64;
         surface.BuildNavMesh();
@@ -515,8 +534,8 @@ public static class Fantasy4xTestScenario
         if (triCount < 1000 || Mathf.Abs(b.center.y - hCenter) > 20f)
         {
             Debug.LogWarning(
-                "[Fantasy4x] NavMesh bake looks wrong vs terrain height — retrying with voxelSize=0.5");
-            surface.voxelSize = 0.5f;
+                "[Fantasy4x] NavMesh bake looks wrong vs terrain height — retrying with voxelSize=2");
+            surface.voxelSize = 2f;
             surface.BuildNavMesh();
             tri = NavMesh.CalculateTriangulation();
             triCount = tri.indices != null ? tri.indices.Length / 3 : 0;

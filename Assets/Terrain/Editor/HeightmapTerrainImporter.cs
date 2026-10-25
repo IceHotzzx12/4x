@@ -6,27 +6,62 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// Creates a seamless Unity Terrain from a 16-bit grayscale PNG heightmap.
+/// Creates a seamless Unity Terrain from a grayscale PNG heightmap.
 /// Menu: Fantasy 4x → Terrain → …
 /// Designed for RoK-style top-down strategy (large XY footprint, modest height).
 /// </summary>
+[InitializeOnLoad]
 public static class HeightmapTerrainImporter
 {
     const string HeightmapFolder = "Assets/Terrain/Heightmaps/GameDevGary";
     const string TerrainDataFolder = "Assets/Terrain/Generated";
     const string DefaultHeightmap = "Heightmap_04_Plains.png";
+    const string PlainsTerrainName = "WorldTerrain_Plains";
     const string RiverMaskPath = "Assets/Terrain/RiverMask/Blindman67/River.png";
+    const string PlainsHeightsSessionKey = "Fantasy4x.PlainsHeights.v3";
 
-    // Strategy top-down defaults: wide map, gentle relief for open marches.
-    const float DefaultTerrainWidth = 2000f;
-    const float DefaultTerrainLength = 2000f;
-    const float DefaultTerrainHeightPlains = 60f;
+    // RoK-scale prototype sizes — see Fantasy4xMapDesign (1200 km via 4000 u × 300 m/u).
+    static float DefaultTerrainWidth => Fantasy4xMapDesign.PrototypeTerrainWidthUnity;
+    static float DefaultTerrainLength => Fantasy4xMapDesign.PrototypeTerrainLengthUnity;
+    static float DefaultTerrainHeightPlains => Fantasy4xMapDesign.PrototypePlainsMaxHeightUnity;
     const float DefaultTerrainHeightRelief = 180f;
+
+    static HeightmapTerrainImporter()
+    {
+        EditorApplication.delayCall += AutoReapplyPlainsHeightsIfNeeded;
+    }
+
+    static void AutoReapplyPlainsHeightsIfNeeded()
+    {
+        if (EditorApplication.isPlayingOrWillChangePlaymode) return;
+        if (SessionState.GetBool(PlainsHeightsSessionKey, false)) return;
+
+        var terrain = Terrain.activeTerrain;
+        if (terrain == null || terrain.name != PlainsTerrainName || terrain.terrainData == null)
+            return;
+
+        try
+        {
+            ApplyHeightmapToTerrain(
+                terrain,
+                $"{HeightmapFolder}/{DefaultHeightmap}",
+                DefaultTerrainHeightPlains,
+                preserveLayers: true);
+            Fantasy4xTestScenario.EnsurePlainsTerrainVisualsPublic(terrain);
+            Fantasy4xTestScenario.ResyncTestScenarioAfterTerrainChange();
+            SessionState.SetBool(PlainsHeightsSessionKey, true);
+            Debug.Log("[Fantasy4x] Auto-applied Plains heightmap heights (v3) + test scenario resync.");
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogWarning("[Fantasy4x] Auto plains heights skipped: " + ex.Message);
+        }
+    }
 
     [MenuItem("Fantasy 4x/Terrain/Create Plains Terrain (recommended)", false, 10)]
     public static void CreatePlainsTerrain()
     {
-        CreateTerrainFromAsset($"{HeightmapFolder}/{DefaultHeightmap}", DefaultTerrainHeightPlains, "WorldTerrain_Plains");
+        CreateTerrainFromAsset($"{HeightmapFolder}/{DefaultHeightmap}", DefaultTerrainHeightPlains, PlainsTerrainName);
     }
 
     /// <summary>
@@ -39,7 +74,7 @@ public static class HeightmapTerrainImporter
             CreateTerrainFromAsset(
                 $"{HeightmapFolder}/{DefaultHeightmap}",
                 DefaultTerrainHeightPlains,
-                "WorldTerrain_Plains",
+                PlainsTerrainName,
                 batchMode: true);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
@@ -54,6 +89,79 @@ public static class HeightmapTerrainImporter
                 EditorApplication.Exit(1);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Re-apply GameDevGary Plains heightmap onto existing WorldTerrain_Plains (keeps grass layers).
+    /// Headless: -executeMethod HeightmapTerrainImporter.ApplyPlainsHeightsBatch
+    /// </summary>
+    [MenuItem("Fantasy 4x/Terrain/Re-apply Plains Heightmap", false, 15)]
+    public static void ApplyPlainsHeightsMenu()
+    {
+        try
+        {
+            ApplyPlainsHeightsInternal(showDialog: true);
+        }
+        catch (System.Exception ex)
+        {
+            EditorUtility.DisplayDialog("Plains Heightmap", "Failed:\n" + ex.Message, "OK");
+            throw;
+        }
+    }
+
+    public static void ApplyPlainsHeightsBatch()
+    {
+        try
+        {
+            ApplyPlainsHeightsInternal(showDialog: false);
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+            Debug.Log("[Fantasy4x] ApplyPlainsHeightsBatch OK");
+            if (Application.isBatchMode)
+                EditorApplication.Exit(0);
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError("[Fantasy4x] ApplyPlainsHeightsBatch FAILED: " + ex);
+            if (Application.isBatchMode)
+                EditorApplication.Exit(1);
+            throw;
+        }
+    }
+
+    static void ApplyPlainsHeightsInternal(bool showDialog)
+    {
+        const string scenePath = "Assets/Scenes/WorldMap.unity";
+        if (File.Exists(scenePath))
+            EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+
+        var terrainGo = GameObject.Find(PlainsTerrainName);
+        var terrain = terrainGo != null ? terrainGo.GetComponent<Terrain>() : Terrain.activeTerrain;
+        if (terrain == null || terrain.terrainData == null)
+            throw new System.InvalidOperationException(
+                "WorldTerrain_Plains not found. Run Create Plains Terrain first.");
+
+        var stats = ApplyHeightmapToTerrain(
+            terrain,
+            $"{HeightmapFolder}/{DefaultHeightmap}",
+            DefaultTerrainHeightPlains,
+            preserveLayers: true);
+
+        Fantasy4xTestScenario.EnsurePlainsTerrainVisualsPublic(terrain);
+        Fantasy4xTestScenario.ResyncTestScenarioAfterTerrainChange();
+        SessionState.SetBool(PlainsHeightsSessionKey, true);
+
+        var msg =
+            $"[Fantasy4x] Plains heightmap applied (RoK-scale).\n" +
+            $"Source: {DefaultHeightmap}\n" +
+            $"Terrain size: {DefaultTerrainWidth}×{DefaultTerrainHeightPlains}×{DefaultTerrainLength} " +
+            $"(≈ {Fantasy4xMapDesign.PrototypeKingdomWidthKm:F0} km @ {Fantasy4xMapDesign.MetersPerUnityUnit} m/u)\n" +
+            $"Resolution: {stats.resolution}\n" +
+            $"Raw sample min/max: {stats.rawMin:F3} .. {stats.rawMax:F3} (stretched to 0..1)\n" +
+            $"Shard players (design only): {Fantasy4xMapDesign.TargetPlayersPerKingdomShardMin}–{Fantasy4xMapDesign.TargetPlayersPerKingdomShardMax}";
+        Debug.Log(msg);
+        if (showDialog)
+            EditorUtility.DisplayDialog("Plains Heightmap", msg, "OK");
     }
 
     [MenuItem("Fantasy 4x/Terrain/Create Meadows Terrain", false, 11)]
@@ -123,93 +231,196 @@ public static class HeightmapTerrainImporter
     static void CreateTerrainFromAsset(string texturePath, float maxHeight, string terrainName, bool batchMode = false)
     {
         EnsureReadable(texturePath);
+        AssetDatabase.ImportAsset(texturePath);
         AssetDatabase.Refresh();
-
-        var heightmap = AssetDatabase.LoadAssetAtPath<Texture2D>(texturePath);
-        if (heightmap == null)
-        {
-            var msg = $"Could not load texture:\n{texturePath}";
-            if (batchMode) throw new System.InvalidOperationException(msg);
-            EditorUtility.DisplayDialog("Heightmap Terrain", msg, "OK");
-            return;
-        }
-
-        if (!heightmap.isReadable)
-        {
-            var msg =
-                $"{heightmap.name} is not readable.\n" +
-                "In the Inspector enable Read/Write, then re-run this menu item.\n" +
-                "(Importer .meta files in this PR already set that for GameDevGary maps.)";
-            if (batchMode) throw new System.InvalidOperationException(msg);
-            EditorUtility.DisplayDialog("Heightmap Terrain", msg, "OK");
-            return;
-        }
 
         EnsureFolder(TerrainDataFolder);
 
-        var resolution = PickHeightmapResolution(Mathf.Max(heightmap.width, heightmap.height));
-        var heights = SampleHeights(heightmap, resolution);
-
-        var terrainData = new TerrainData();
-        terrainData.heightmapResolution = resolution;
-        terrainData.size = new Vector3(DefaultTerrainWidth, maxHeight, DefaultTerrainLength);
-        terrainData.SetHeights(0, 0, heights);
-
         var dataPath = $"{TerrainDataFolder}/{terrainName}_Data.asset";
-        dataPath = AssetDatabase.GenerateUniqueAssetPath(dataPath);
-        AssetDatabase.CreateAsset(terrainData, dataPath);
+        var existingData = AssetDatabase.LoadAssetAtPath<TerrainData>(dataPath);
+        var preservedLayers = existingData != null ? existingData.terrainLayers : null;
+
+        HeightSampleStats stats;
+        TerrainData terrainData;
+        if (existingData != null)
+        {
+            terrainData = existingData;
+            stats = ApplyHeightmapToTerrainData(terrainData, texturePath, maxHeight);
+            if (preservedLayers != null && preservedLayers.Length > 0)
+                terrainData.terrainLayers = preservedLayers;
+            EditorUtility.SetDirty(terrainData);
+        }
+        else
+        {
+            terrainData = new TerrainData();
+            stats = ApplyHeightmapToTerrainData(terrainData, texturePath, maxHeight);
+            AssetDatabase.CreateAsset(terrainData, dataPath);
+        }
+
+        AssetDatabase.SaveAssets();
 
         var scene = EnsureWorldMapScene();
         var existing = GameObject.Find(terrainName);
+        Terrain terrainComp;
         if (existing != null)
-            Object.DestroyImmediate(existing);
+        {
+            terrainComp = existing.GetComponent<Terrain>();
+            if (terrainComp == null)
+                terrainComp = existing.AddComponent<Terrain>();
+            terrainComp.terrainData = terrainData;
+            var col = existing.GetComponent<TerrainCollider>();
+            if (col == null)
+                col = existing.AddComponent<TerrainCollider>();
+            col.terrainData = terrainData;
+            existing.transform.position = Vector3.zero;
+        }
+        else
+        {
+            var terrainGo = Terrain.CreateTerrainGameObject(terrainData);
+            terrainGo.name = terrainName;
+            terrainGo.transform.position = Vector3.zero;
+            terrainComp = terrainGo.GetComponent<Terrain>();
+        }
 
-        var terrainGo = Terrain.CreateTerrainGameObject(terrainData);
-        terrainGo.name = terrainName;
-        terrainGo.transform.position = Vector3.zero;
+        if (terrainName == PlainsTerrainName)
+            Fantasy4xTestScenario.EnsurePlainsTerrainVisualsPublic(terrainComp);
 
-        // Top-down strategy camera if none present.
         EnsureStrategyCamera(terrainData.size);
 
         EditorSceneManager.MarkSceneDirty(scene);
         EditorSceneManager.SaveScene(scene);
+        SessionState.SetBool(PlainsHeightsSessionKey, true);
 
-        Selection.activeGameObject = terrainGo;
-        EditorGUIUtility.PingObject(terrainGo);
+        Selection.activeGameObject = terrainComp.gameObject;
+        EditorGUIUtility.PingObject(terrainComp.gameObject);
 
         Debug.Log(
-            $"[Fantasy4x] Created seamless Terrain '{terrainName}' from {texturePath}\n" +
-            $"Size: {DefaultTerrainWidth}×{maxHeight}×{DefaultTerrainLength}, heightmapRes={resolution}\n" +
+            $"[Fantasy4x] Created/updated seamless Terrain '{terrainName}' from {texturePath}\n" +
+            $"Size: {DefaultTerrainWidth}×{maxHeight}×{DefaultTerrainLength}, heightmapRes={stats.resolution}\n" +
+            $"Raw sample min/max: {stats.rawMin:F3} .. {stats.rawMax:F3}\n" +
             $"TerrainData: {dataPath}\n" +
             "No grid/tile — single continuous height field.");
     }
 
-    static float[,] SampleHeights(Texture2D tex, int resolution)
+    struct HeightSampleStats
     {
-        var heights = new float[resolution, resolution];
-        // Unity Terrain height samples: [y, x]; texture UV sample across full map.
+        public int resolution;
+        public float rawMin;
+        public float rawMax;
+    }
+
+    static HeightSampleStats ApplyHeightmapToTerrain(
+        Terrain terrain,
+        string texturePath,
+        float maxHeight,
+        bool preserveLayers)
+    {
+        EnsureReadable(texturePath);
+        AssetDatabase.ImportAsset(texturePath);
+
+        var layers = preserveLayers ? terrain.terrainData.terrainLayers : null;
+        var stats = ApplyHeightmapToTerrainData(terrain.terrainData, texturePath, maxHeight);
+        if (layers != null && layers.Length > 0)
+            terrain.terrainData.terrainLayers = layers;
+
+        EditorUtility.SetDirty(terrain.terrainData);
+        terrain.Flush();
+        AssetDatabase.SaveAssets();
+        return stats;
+    }
+
+    static HeightSampleStats ApplyHeightmapToTerrainData(
+        TerrainData terrainData,
+        string texturePath,
+        float maxHeight)
+    {
+        var resolution = 1025;
+        var heights = SampleHeightsFromPath(texturePath, resolution, out var rawMin, out var rawMax);
+
+        // Changing resolution rebuilds alphamaps — caller may re-apply grass.
+        terrainData.heightmapResolution = resolution;
+        terrainData.size = new Vector3(DefaultTerrainWidth, maxHeight, DefaultTerrainLength);
+        terrainData.SetHeights(0, 0, heights);
+
+        return new HeightSampleStats
+        {
+            resolution = resolution,
+            rawMin = rawMin,
+            rawMax = rawMax
+        };
+    }
+
+    /// <summary>
+    /// Decode PNG via LoadImage (reliable for 16-bit grayscale sources) and build Terrain heights.
+    /// Samples color.grayscale, then stretches min..max → 0..1 so relief uses full size.y.
+    /// </summary>
+    static float[,] SampleHeightsFromPath(
+        string texturePath,
+        int resolution,
+        out float rawMin,
+        out float rawMax)
+    {
+        var fullPath = Path.GetFullPath(texturePath);
+        if (!File.Exists(fullPath))
+            throw new FileNotFoundException("Heightmap PNG missing", fullPath);
+
+        var fileBytes = File.ReadAllBytes(fullPath);
+        var decode = new Texture2D(2, 2, TextureFormat.RGBA32, false, linear: true);
+        if (!decode.LoadImage(fileBytes, markNonReadable: false))
+        {
+            Object.DestroyImmediate(decode);
+            throw new System.InvalidOperationException("PNG LoadImage failed: " + texturePath);
+        }
+
+        try
+        {
+            return SampleHeights(decode, resolution, out rawMin, out rawMax);
+        }
+        finally
+        {
+            Object.DestroyImmediate(decode);
+        }
+    }
+
+    static float[,] SampleHeights(Texture2D tex, int resolution, out float rawMin, out float rawMax)
+    {
+        var raw = new float[resolution, resolution];
+        rawMin = 1f;
+        rawMax = 0f;
+
         for (var y = 0; y < resolution; y++)
         {
             var v = y / (float)(resolution - 1);
             for (var x = 0; x < resolution; x++)
             {
                 var u = x / (float)(resolution - 1);
-                // Bilinear via GetPixelBilinear; grayscale in R (16-bit PNG imports as R).
                 var c = tex.GetPixelBilinear(u, v);
-                heights[y, x] = Mathf.Clamp01(c.r);
+                var h = Mathf.Clamp01(c.grayscale);
+                raw[y, x] = h;
+                if (h < rawMin) rawMin = h;
+                if (h > rawMax) rawMax = h;
             }
         }
 
-        return heights;
-    }
+        var heights = new float[resolution, resolution];
+        var range = rawMax - rawMin;
+        if (range < 1e-5f)
+        {
+            // Flat source — keep mid plateau rather than NaNs.
+            for (var y = 0; y < resolution; y++)
+            for (var x = 0; x < resolution; x++)
+                heights[y, x] = 0.15f;
+            Debug.LogWarning("[Fantasy4x] Heightmap samples were flat; using plateau 0.15.");
+        }
+        else
+        {
+            // Stretch to full 0..1 so Terrain size.y (e.g. 80) shows real hills.
+            for (var y = 0; y < resolution; y++)
+            for (var x = 0; x < resolution; x++)
+                heights[y, x] = (raw[y, x] - rawMin) / range;
+        }
 
-    static int PickHeightmapResolution(int sourceMax)
-    {
-        // Power-of-two + 1 required by TerrainData. Cap for mobile.
-        if (sourceMax >= 2048) return 1025;
-        if (sourceMax >= 1024) return 1025;
-        if (sourceMax >= 512) return 513;
-        return 257;
+        return heights;
     }
 
     static void EnsureReadable(string assetPath)
@@ -245,6 +456,20 @@ public static class HeightmapTerrainImporter
         if (importer.sRGBTexture)
         {
             importer.sRGBTexture = false;
+            dirty = true;
+        }
+
+        // Prefer single-channel import for grayscale heightmaps when available.
+        if (importer.textureType != TextureImporterType.SingleChannel)
+        {
+            importer.textureType = TextureImporterType.SingleChannel;
+            importer.singleChannelComponent = TextureImporterSingleChannelComponent.Red;
+            dirty = true;
+        }
+
+        if (importer.maxTextureSize < 2048)
+        {
+            importer.maxTextureSize = 2048;
             dirty = true;
         }
 
@@ -294,7 +519,6 @@ public static class HeightmapTerrainImporter
             cam.tag = "MainCamera";
         }
 
-        // Orthographic-ish top-down for RoK feel; slight pitch so height reads.
         var center = new Vector3(terrainSize.x * 0.5f, 0f, terrainSize.z * 0.5f);
         cam.transform.position = center + new Vector3(0f, terrainSize.x * 0.55f, -terrainSize.z * 0.15f);
         cam.transform.rotation = Quaternion.Euler(65f, 0f, 0f);
